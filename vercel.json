@@ -12,6 +12,10 @@
     {
       "path": "/api/cron/collect-market-data",
       "schedule": "0 22 * * *"
+    },
+    {
+      "path": "/api/cron/collect-global-indices",
+      "schedule": "0 22 * * *"
     }
   ],
   "env": {

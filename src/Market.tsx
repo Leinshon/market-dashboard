@@ -2071,6 +2071,10 @@ ${globalSummary}
               {/* 투자 타이밍 지표 탭 - 선행/동행/후행 통합 */}
               {activeTab === 'timing' && (
                 <div className="market-timing-dashboard">
+                  <div className="market-timing-header">
+                    <h2 className="market-timing-title">투자 타이밍 지표</h2>
+                    <p className="market-timing-desc">선행, 동행, 후행 지표를 통한 시장 타이밍 분석</p>
+                  </div>
                   <div className="chart-period-selector">
                     {(['1y', '3y', '5y', '10y', 'all'] as const).map(period => (
                       <button
@@ -2279,6 +2283,10 @@ ${globalSummary}
               {/* 매크로 지표 탭 - 성장/물가/고용/통화정책 통합 */}
               {activeTab === 'macro' && (
                 <div className="market-timing-dashboard">
+                  <div className="market-timing-header">
+                    <h2 className="market-timing-title">매크로 지표</h2>
+                    <p className="market-timing-desc">성장, 물가, 고용, 통화정책 등 거시경제 지표</p>
+                  </div>
                   <div className="chart-period-selector">
                     {(['1y', '3y', '5y', '10y', 'all'] as const).map(period => (
                       <button

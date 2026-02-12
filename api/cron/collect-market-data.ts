@@ -102,9 +102,15 @@ function calculateYoYChange(current: number, yearAgo: number): number {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   console.log('Starting market data collection...')
 
-  // Verify this is a cron request (optional security check)
+  // Verify this is a cron request from Vercel
+  // Vercel automatically adds this header to cron requests
+  const isVercelCron = req.headers['x-vercel-cron'] === '1'
+
+  // Also allow manual trigger with CRON_SECRET for testing
   const authHeader = req.headers.authorization
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  const isManualTrigger = authHeader === `Bearer ${process.env.CRON_SECRET}`
+
+  if (!isVercelCron && !isManualTrigger) {
     return res.status(401).json({ error: 'Unauthorized' })
   }
 
@@ -125,6 +131,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       fearGreedValue,
       vixData,
       spyData,
+      qqqData,
+      gldData,
+      schdData,
+      vymData,
       dxyData,
       gdpData,
       marketCapData,
@@ -151,6 +161,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       fetchFearGreed(),
       fetchYahooQuote('^VIX'),
       fetchYahooQuote('SPY'),
+      fetchYahooQuote('QQQ'),
+      fetchYahooQuote('GLD'),
+      fetchYahooQuote('SCHD'),
+      fetchYahooQuote('VYM'),
       fetchYahooQuote('DX-Y.NYB'),
       fetchFRED('GDP', FRED_API_KEY, 5),
       fetchFRED('NCBCEL', FRED_API_KEY, 5),
@@ -183,13 +197,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       vix = Math.round(vixData.chart.result[0].meta.regularMarketPrice * 100) / 100
     }
 
+    let spyPrice: number | null = null
     let spyVs200MA: number | null = null
     if (spyData?.chart?.result?.[0]) {
       const result = spyData.chart.result[0]
       const prices = result.indicators.adjclose[0].adjclose.filter(p => p != null)
       const currentPrice = result.meta.regularMarketPrice
+      spyPrice = Math.round(currentPrice * 100) / 100
       const ma200 = calculate200MA(prices)
       spyVs200MA = Math.round(((currentPrice - ma200) / ma200) * 10000) / 100
+    }
+
+    let qqqPrice: number | null = null
+    if (qqqData?.chart?.result?.[0]) {
+      qqqPrice = Math.round(qqqData.chart.result[0].meta.regularMarketPrice * 100) / 100
+    }
+
+    let gldPrice: number | null = null
+    if (gldData?.chart?.result?.[0]) {
+      gldPrice = Math.round(gldData.chart.result[0].meta.regularMarketPrice * 100) / 100
+    }
+
+    let schdPrice: number | null = null
+    if (schdData?.chart?.result?.[0]) {
+      schdPrice = Math.round(schdData.chart.result[0].meta.regularMarketPrice * 100) / 100
+    }
+
+    let vymPrice: number | null = null
+    if (vymData?.chart?.result?.[0]) {
+      vymPrice = Math.round(vymData.chart.result[0].meta.regularMarketPrice * 100) / 100
     }
 
     let buffettIndicator: number | null = null
@@ -336,7 +372,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       date: today,
       fear_greed: fearGreedValue,
       vix,
+      spy_price: spyPrice,
       spy_vs_200ma: spyVs200MA,
+      qqq_price: qqqPrice,
+      gld_price: gldPrice,
+      schd_price: schdPrice,
+      vym_price: vymPrice,
       buffett_indicator: buffettIndicator,
       fed_balance_sheet_yoy: fedBalanceSheetYoY,
       m2_growth_yoy: m2GrowthYoY,
@@ -363,7 +404,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       raw_data: {
         fearGreed: fearGreedValue,
         vix,
+        spyPrice,
         spyVs200MA,
+        qqqPrice,
+        gldPrice,
+        schdPrice,
+        vymPrice,
         buffettIndicator,
         fedBalanceSheetYoY,
         m2GrowthYoY,
