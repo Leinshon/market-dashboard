@@ -85,6 +85,39 @@ async function fetchFearGreed(): Promise<number | null> {
   }
 }
 
+// DBnomics API Helper for ISM PMI
+async function fetchDBnomicsISM(provider: string, dataset: string, series: string): Promise<number | null> {
+  try {
+    const url = `https://api.db.nomics.world/v22/series/${provider}/${dataset}/${series}?observations=1`
+    const response = await fetch(url)
+    if (!response.ok) {
+      console.warn(`DBnomics API warning for ${provider}/${dataset}/${series}: ${response.status}`)
+      return null
+    }
+    const data = await response.json()
+    const seriesData = data.series?.docs?.[0]
+    if (!seriesData || !seriesData.period || !seriesData.value) {
+      return null
+    }
+
+    const periods = seriesData.period
+    const values = seriesData.value
+
+    // Get the latest valid value (PMI should be between 30-70, filter out bad data)
+    for (let i = periods.length - 1; i >= 0; i--) {
+      const value = parseFloat(values[i])
+      if (value >= 30 && value <= 70) {
+        return Math.round(value * 100) / 100
+      }
+    }
+
+    return null
+  } catch (error) {
+    console.warn(`DBnomics API error for ${provider}/${dataset}/${series}:`, error)
+    return null
+  }
+}
+
 // Calculate 200-day MA
 function calculate200MA(prices: number[]): number {
   if (prices.length < 200) {
@@ -186,8 +219,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       fetchFRED('DGS3MO', FRED_API_KEY, 5),
       fetchFRED('ICSA', FRED_API_KEY, 5),
       fetchFRED('A191RL1Q225SBEA', FRED_API_KEY, 5),
-      fetchFRED('MANEMP', FRED_API_KEY, 5),
-      fetchFRED('NMFBAI', FRED_API_KEY, 5),
+      fetchDBnomicsISM('ISM', 'pmi', 'pm'),
+      fetchDBnomicsISM('ISM', 'nm-pmi', 'pm'),
       fetchFRED('RSXFS', FRED_API_KEY, 15),
       fetchFRED('CPIAUCSL', FRED_API_KEY, 15),
       fetchFRED('CPILFESL', FRED_API_KEY, 15),
@@ -292,15 +325,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     let ismManufacturing: number | null = null
-    if (ismManufacturingData.length > 0) {
-      ismManufacturing = Math.round(parseFloat(ismManufacturingData[0].value) * 100) / 100
+    if (ismManufacturingData !== null) {
+      ismManufacturing = ismManufacturingData
     } else if (previousRecord?.ism_manufacturing !== null && previousRecord?.ism_manufacturing !== undefined) {
       ismManufacturing = previousRecord.ism_manufacturing
     }
 
     let ismServices: number | null = null
-    if (ismServicesData.length > 0) {
-      ismServices = Math.round(parseFloat(ismServicesData[0].value) * 100) / 100
+    if (ismServicesData !== null) {
+      ismServices = ismServicesData
     } else if (previousRecord?.ism_services !== null && previousRecord?.ism_services !== undefined) {
       ismServices = previousRecord.ism_services
     }
