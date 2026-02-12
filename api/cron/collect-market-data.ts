@@ -132,6 +132,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       vixData,
       spyData,
       qqqData,
+      sgovData,
       gldData,
       schdData,
       vymData,
@@ -162,6 +163,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       fetchYahooQuote('^VIX'),
       fetchYahooQuote('SPY'),
       fetchYahooQuote('QQQ'),
+      fetchYahooQuote('SGOV'),
       fetchYahooQuote('GLD'),
       fetchYahooQuote('SCHD'),
       fetchYahooQuote('VYM'),
@@ -211,6 +213,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let qqqPrice: number | null = null
     if (qqqData?.chart?.result?.[0]) {
       qqqPrice = Math.round(qqqData.chart.result[0].meta.regularMarketPrice * 100) / 100
+    }
+
+    let sgovPrice: number | null = null
+    if (sgovData?.chart?.result?.[0]) {
+      sgovPrice = Math.round(sgovData.chart.result[0].meta.regularMarketPrice * 100) / 100
     }
 
     let gldPrice: number | null = null
@@ -375,6 +382,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       spy_price: spyPrice,
       spy_vs_200ma: spyVs200MA,
       qqq_price: qqqPrice,
+      sgov_price: sgovPrice,
       gld_price: gldPrice,
       schd_price: schdPrice,
       vym_price: vymPrice,
@@ -407,6 +415,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         spyPrice,
         spyVs200MA,
         qqqPrice,
+        sgovPrice,
         gldPrice,
         schdPrice,
         vymPrice,
