@@ -1,0 +1,1919 @@
+/* 시장 환경 섹션 */
+.market-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  gap: 16px;
+}
+
+.market-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #e2e8f0;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.market-loading p {
+  font-size: 14px;
+  color: #64748b;
+  margin: 0;
+}
+
+.market-error {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.market-error p {
+  font-size: 14px;
+  color: #dc2626;
+  margin: 0 0 16px 0;
+}
+
+.market-error button {
+  padding: 10px 20px;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* 국면 카드 */
+.market-phase-card {
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 24px;
+  border: 2px solid;
+}
+
+.market-phase-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.market-phase-badge {
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 600;
+  color: white;
+}
+
+.market-phase-score {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.market-score-label {
+  font-size: 12px;
+  color: #64748b;
+  margin-right: 8px;
+}
+
+.market-score-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.market-score-max {
+  font-size: 14px;
+  color: #94a3b8;
+}
+
+.market-percentile-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.market-percentile-item {
+  background: #f1f5f9;
+  padding: 4px 10px;
+  border-radius: 4px;
+}
+
+.market-percentile-divider {
+  color: #cbd5e1;
+}
+
+/* 점수 분포 히스토그램 */
+.market-distribution {
+  margin: 16px 0;
+  padding: 14px;
+  background: white;
+  border-radius: 8px;
+}
+
+.market-distribution-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.market-distribution-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: #475569;
+}
+
+.market-distribution-stats {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.market-normal-curve {
+  width: 100%;
+  height: 160px;
+}
+
+.market-normal-curve svg {
+  width: 100%;
+  height: 100%;
+}
+
+.market-distribution-legend {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 4px;
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+/* 시장 인사이트 섹션 */
+.market-insight-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 4px;
+}
+
+.market-insight-box {
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.market-insight-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.market-insight-icon {
+  width: 20px;
+  height: 20px;
+  background: #3b82f6;
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  font-style: italic;
+}
+
+.market-insight-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.market-insight-content {
+  font-size: 14px;
+  color: #475569;
+  line-height: 1.65;
+  margin: 0;
+}
+
+.market-extreme-commentary {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.market-extreme-comment {
+  font-size: 13px;
+  color: #334155;
+  line-height: 1.6;
+  margin: 0;
+  padding-left: 12px;
+  position: relative;
+}
+
+.market-extreme-comment::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 4px;
+  height: 4px;
+  background: #64748b;
+  border-radius: 50%;
+}
+
+.market-recommendation-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.market-action-box {
+  background: #eff6ff;
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.market-action-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #3b82f6;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.market-action-content {
+  font-size: 14px;
+  color: #1e40af;
+  line-height: 1.5;
+  margin: 0;
+  font-weight: 500;
+}
+
+.market-allocation-box {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.market-allocation-label-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: block;
+  margin-bottom: 12px;
+}
+
+.market-allocation-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.market-allocation-bar-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.market-allocation-bar-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #475569;
+}
+
+.market-allocation-bar-header span:last-child {
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.market-allocation-bar-track {
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.market-allocation-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.market-allocation-bar-fill.stocks {
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+}
+
+.market-allocation-bar-fill.bonds {
+  background: linear-gradient(90deg, #10b981, #34d399);
+}
+
+.market-allocation-bar-fill.cash {
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+}
+
+/* 지표 섹션 */
+.market-indicators {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.market-category {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.market-category-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.market-category-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #334155;
+  margin: 0;
+}
+
+.market-category-avg {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+  padding: 4px 12px;
+  border-radius: 16px;
+  min-width: 32px;
+  text-align: center;
+}
+
+.market-category-subtitle {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+.market-category-ref {
+  opacity: 0.7;
+}
+
+.market-category-ref .market-category-title {
+  color: #64748b;
+}
+
+.market-indicator-ref {
+  background: #f1f5f9;
+}
+
+.market-indicator-weight {
+  font-size: 11px;
+  color: #3b82f6;
+  font-weight: 600;
+  margin-left: 6px;
+  background: #eff6ff;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.market-category-items {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.market-indicator-row {
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.market-indicator-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.market-indicator-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #334155;
+}
+
+.market-indicator-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e293b;
+  font-family: 'SF Mono', Consolas, monospace;
+}
+
+.market-indicator-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 24px;
+}
+
+.market-indicator-bar {
+  flex: 1;
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  position: relative;
+}
+
+.market-indicator-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.market-indicator-marker {
+  position: absolute;
+  top: -22px;
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-weight: 600;
+  color: #1e293b;
+  background: #ffffff;
+  padding: 2px 6px;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  white-space: nowrap;
+  font-family: 'SF Mono', Consolas, monospace;
+}
+
+.market-indicator-score {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.market-indicator-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.market-indicator-range {
+  font-size: 11px;
+  color: #64748b;
+  background: #e2e8f0;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: 'SF Mono', Consolas, monospace;
+}
+
+.market-indicator-desc {
+  font-size: 11px;
+  color: #94a3b8;
+  text-align: right;
+}
+
+.market-indicator-toggle {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  line-height: 14px;
+  text-align: center;
+  background: #e2e8f0;
+  border-radius: 4px;
+  margin-right: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.market-indicator-row.expanded {
+  background: #f1f5f9;
+}
+
+.market-indicator-row.expanded .market-indicator-toggle {
+  background: #3b82f6;
+  color: #ffffff;
+}
+
+.market-indicator-chart {
+  height: 160px;
+  margin-top: 12px;
+  padding: 12px;
+  background: #ffffff;
+  border-radius: 8px;
+}
+
+/* 푸터 */
+.market-footer {
+  text-align: center;
+  padding-top: 16px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.market-footer p {
+  font-size: 12px;
+  color: #94a3b8;
+  margin: 0 0 4px 0;
+}
+
+.market-disclaimer {
+  font-size: 11px;
+  color: #cbd5e1;
+}
+
+/* 반응형 */
+@media (max-width: 640px) {
+  .calculator-container {
+    padding: 20px 16px;
+  }
+
+  .calc-tabs {
+    flex-direction: column;
+  }
+
+  .calc-section {
+    padding: 20px;
+  }
+
+  .calc-inputs {
+    grid-template-columns: 1fr;
+  }
+
+  .calc-result-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .calc-table {
+    font-size: 12px;
+  }
+
+  .calc-table th,
+  .calc-table td {
+    padding: 8px 6px;
+  }
+
+  .market-recommendation-row {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .market-percentile-info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .market-percentile-divider {
+    display: none;
+  }
+
+  .market-indicator-row {
+    padding: 10px;
+  }
+
+  .market-indicator-name {
+    font-size: 12px;
+  }
+
+  .market-indicator-value {
+    font-size: 13px;
+  }
+
+  .market-indicator-meta {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .market-indicator-range {
+    font-size: 10px;
+  }
+
+  .market-indicator-desc {
+    font-size: 10px;
+    text-align: left;
+  }
+
+  .market-category {
+    padding: 14px;
+  }
+
+  .market-category-title {
+    font-size: 14px;
+  }
+}
+
+/* 히스토리 차트 */
+.market-history-chart {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.market-chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.market-chart-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+}
+
+.market-period-selector {
+  display: flex;
+  gap: 4px;
+}
+
+.market-period-btn {
+  padding: 4px 10px;
+  border: 1px solid #e2e8f0;
+  background: white;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.market-period-btn:hover {
+  color: #3b82f6;
+  border-color: #3b82f6;
+}
+
+.market-period-btn.active {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: white;
+}
+
+/* 구간 필터 버튼 */
+.market-stance-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.market-stance-btn {
+  padding: 5px 10px;
+  border: 1px solid #e2e8f0;
+  background: white;
+  border-radius: 16px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.market-stance-btn:hover {
+  border-color: var(--stance-color, #94a3b8);
+  color: var(--stance-color, #64748b);
+}
+
+.market-stance-btn.active {
+  color: var(--stance-color, #3b82f6);
+  font-weight: 600;
+}
+
+.market-chart-range {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0 0 12px 0;
+}
+
+.market-chart-container {
+  height: 200px;
+  position: relative;
+}
+
+@media (max-width: 640px) {
+  .market-history-chart {
+    padding: 16px;
+  }
+
+  .market-chart-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .market-period-selector {
+    width: 100%;
+  }
+
+  .market-period-btn {
+    flex: 1;
+    text-align: center;
+  }
+
+  .market-chart-container {
+    height: 160px;
+  }
+}
+
+/* 백테스트 섹션 */
+.backtest-settings {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.backtest-setting-group {
+  margin-bottom: 16px;
+}
+
+.backtest-setting-group:last-child {
+  margin-bottom: 0;
+}
+
+.backtest-setting-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: #475569;
+  margin-bottom: 8px;
+}
+
+.backtest-strategy-buttons,
+.backtest-period-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.backtest-strategy-btn,
+.backtest-period-btn {
+  flex: 1;
+  min-width: 80px;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  background: white;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.backtest-strategy-btn:hover,
+.backtest-period-btn:hover {
+  color: #3b82f6;
+  border-color: #3b82f6;
+}
+
+.backtest-strategy-btn.active,
+.backtest-period-btn.active {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: white;
+}
+
+.backtest-threshold-settings {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 16px;
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.backtest-threshold-settings input[type="range"] {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.backtest-run-btn {
+  width: 100%;
+  padding: 14px;
+  margin-top: 20px;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.backtest-run-btn:hover {
+  background: #2563eb;
+}
+
+.backtest-run-btn:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+}
+
+.backtest-strategy-desc {
+  background: #f0f9ff;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+}
+
+.backtest-strategy-desc p {
+  margin: 0;
+  font-size: 13px;
+  color: #0369a1;
+  line-height: 1.5;
+}
+
+/* DCA 투자금 설정 */
+.backtest-dca-settings {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 16px;
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.backtest-dca-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.backtest-dca-input-group label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #475569;
+}
+
+.backtest-dca-input-wrapper {
+  display: flex;
+  align-items: center;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.backtest-dca-currency {
+  padding: 8px 10px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.backtest-dca-input-wrapper input {
+  flex: 1;
+  border: none;
+  padding: 8px 10px;
+  font-size: 14px;
+  outline: none;
+  min-width: 0;
+}
+
+.backtest-dca-input-wrapper input:focus {
+  box-shadow: none;
+}
+
+.backtest-dca-hint {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.backtest-dca-checkbox-group {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+}
+
+.backtest-dca-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: #334155;
+}
+
+.backtest-dca-checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #3b82f6;
+}
+
+@media (max-width: 640px) {
+  .backtest-dca-settings {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 백테스트 결과 */
+.backtest-results {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.backtest-results h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0 0 16px 0;
+}
+
+/* 금액 요약 */
+.backtest-summary {
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.backtest-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.backtest-summary-card {
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+}
+
+.backtest-summary-card.strategy {
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.backtest-summary-card.benchmark {
+  background: rgba(148, 163, 184, 0.1);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.backtest-summary-label {
+  display: block;
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.backtest-summary-value {
+  display: block;
+  font-size: 22px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.backtest-summary-profit {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.backtest-summary-profit.positive {
+  color: #16a34a;
+}
+
+.backtest-summary-profit.negative {
+  color: #dc2626;
+}
+
+.backtest-summary-invested {
+  display: block;
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+.backtest-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 24px;
+  overflow: hidden;
+}
+
+.backtest-metric-card {
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.backtest-metric-label {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.backtest-metric-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1e293b;
+  word-break: break-word;
+}
+
+.backtest-metric-value.positive {
+  color: #16a34a;
+}
+
+.backtest-metric-value.negative {
+  color: #dc2626;
+}
+
+.backtest-metric-benchmark {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.backtest-chart {
+  margin-bottom: 24px;
+  position: relative;
+  min-height: 340px;
+}
+
+.backtest-chart h3 {
+  margin: 0 0 12px 0;
+}
+
+.backtest-chart-container {
+  height: 300px;
+  position: relative;
+}
+
+/* 거래 내역 */
+.backtest-trades {
+  margin-bottom: 16px;
+  padding-top: 24px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.backtest-trades h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0 0 16px 0;
+}
+
+.backtest-trades-list {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.backtest-trade-item {
+  display: grid;
+  grid-template-columns: 100px 60px 80px 1fr;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 12px;
+  align-items: center;
+}
+
+.backtest-trade-item:last-child {
+  border-bottom: none;
+}
+
+.backtest-trade-item.buy {
+  background: rgba(22, 163, 74, 0.03);
+}
+
+.backtest-trade-item.sell {
+  background: rgba(220, 38, 38, 0.03);
+}
+
+.backtest-trade-date {
+  color: #64748b;
+}
+
+.backtest-trade-action {
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-align: center;
+}
+
+.backtest-trade-action.buy {
+  color: #16a34a;
+  background: rgba(22, 163, 74, 0.1);
+}
+
+.backtest-trade-action.sell {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.1);
+}
+
+.backtest-trade-price {
+  font-weight: 500;
+  color: #1e293b;
+}
+
+.backtest-trade-reason {
+  color: #64748b;
+}
+
+.backtest-disclaimer {
+  font-size: 11px;
+  color: #94a3b8;
+  margin: 16px 0 0 0;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .backtest-summary-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .backtest-summary-card {
+    padding: 12px;
+  }
+
+  .backtest-summary-value {
+    font-size: 18px;
+  }
+
+  .backtest-metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .backtest-threshold-settings {
+    grid-template-columns: 1fr;
+  }
+
+  .backtest-trade-item {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .backtest-trade-reason {
+    grid-column: 1 / -1;
+  }
+
+  .backtest-chart-container {
+    height: 220px;
+  }
+}
+
+/* 날짜 선택 슬라이더 */
+.market-date-slider {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+
+.market-date-slider-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.market-date-slider-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.market-date-slider-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.market-date-latest-badge {
+  font-size: 11px;
+  font-weight: 600;
+  background: #3b82f6;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.market-date-slider-input {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: #e2e8f0;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+.market-date-slider-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #3b82f6;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.market-date-slider-input::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #3b82f6;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.market-date-slider-range {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+/* 투자 확률 표시 */
+.market-probability-box {
+  background: #fafbfc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px;
+  margin-top: 16px;
+}
+
+.market-probability-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 14px;
+}
+
+.market-probability-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.market-probability-period {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.market-probability-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.market-probability-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.market-probability-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.market-probability-direction {
+  font-size: 11px;
+  font-weight: 500;
+  width: 28px;
+  flex-shrink: 0;
+}
+
+.market-probability-direction.up {
+  color: #16a34a;
+}
+
+.market-probability-direction.down {
+  color: #dc2626;
+}
+
+.market-probability-bar-track {
+  flex: 1;
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.market-probability-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.market-probability-bar-fill.up {
+  background: linear-gradient(90deg, #22c55e, #4ade80);
+}
+
+.market-probability-bar-fill.down {
+  background: linear-gradient(90deg, #ef4444, #f87171);
+}
+
+.market-probability-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e293b;
+  min-width: 32px;
+  text-align: right;
+}
+
+.market-probability-avg {
+  font-size: 11px;
+  color: #64748b;
+  min-width: 48px;
+}
+
+.market-probability-year5 {
+  background: #f0fdf4;
+  padding: 10px;
+  border-radius: 8px;
+  margin: -4px;
+}
+
+@media (max-width: 768px) {
+  .market-probability-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .market-probability-year5 {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 480px) {
+  .market-probability-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .market-probability-bar-row {
+    gap: 6px;
+  }
+
+  .market-probability-avg {
+    display: none;
+  }
+}
+
+/* Gemini 채팅 패널 - 접힌 상태 (버튼) */
+.market-chat-panel {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  background: #3b82f6;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.market-chat-panel:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.5);
+}
+
+/* Gemini 채팅 패널 - 열린 상태 */
+.market-chat-panel.open {
+  bottom: 0;
+  right: 0;
+  width: 380px;
+  height: 100vh;
+  background: #fff;
+  border-radius: 0;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  border-left: 1px solid #e2e8f0;
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.08);
+  cursor: default;
+  transform: none;
+}
+
+.market-chat-panel.open:hover {
+  transform: none;
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.08);
+}
+
+.market-chat-header {
+  display: none;
+}
+
+.market-chat-panel.open .market-chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  cursor: default;
+}
+
+.market-chat-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.market-chat-toggle {
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.market-chat-panel.open .market-chat-toggle {
+  color: #94a3b8;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.market-chat-panel.open .market-chat-toggle:hover {
+  background: #e2e8f0;
+}
+
+.market-chat-messages,
+.market-chat-input-form {
+  display: none;
+}
+
+.market-chat-panel.open .market-chat-messages,
+.market-chat-panel.open .market-chat-input-form {
+  display: flex;
+}
+
+.market-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.market-chat-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+  color: #64748b;
+}
+
+.market-chat-empty p {
+  margin-bottom: 20px;
+  font-size: 14px;
+}
+
+.market-chat-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.market-chat-suggestions button {
+  padding: 10px 16px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #334155;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.market-chat-suggestions button:hover {
+  background: #e2e8f0;
+}
+
+.market-chat-message {
+  max-width: 90%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.market-chat-message.user {
+  align-self: flex-end;
+  background: #3b82f6;
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.market-chat-message.assistant {
+  align-self: flex-start;
+  background: #f1f5f9;
+  color: #334155;
+  border-bottom-left-radius: 4px;
+}
+
+.market-chat-message-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.market-chat-message-content.loading {
+  color: #94a3b8;
+}
+
+.market-chat-panel.open .market-chat-input-form {
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.market-chat-input-form input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+}
+
+.market-chat-input-form input:focus {
+  border-color: #3b82f6;
+}
+
+.market-chat-input-form button {
+  padding: 10px 16px;
+  background: #3b82f6;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.market-chat-input-form button:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.market-chat-input-form button:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+  .market-chat-panel {
+    display: none;
+  }
+}
+
+/* 대시보드 스타일 */
+.market-timing-dashboard {
+  padding: 0;
+}
+
+.market-timing-header {
+  margin-bottom: 20px;
+}
+
+.market-timing-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0 0 4px 0;
+}
+
+.market-timing-desc {
+  font-size: 14px;
+  color: #64748b;
+  margin: 0;
+}
+
+.market-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 640px) {
+  .market-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.market-dashboard-card {
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dashboard-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.dashboard-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.dashboard-card-korean {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.dashboard-card-value {
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.dashboard-card-score {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.dashboard-score-label {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.dashboard-score-value {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.dashboard-score-max {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.dashboard-card-bar {
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+
+.dashboard-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.dashboard-card-desc {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.dashboard-card-chart {
+  height: 60px;
+  margin-top: 4px;
+}
+
+/* 글로벌 지수 스타일 */
+.global-region-section {
+  margin-bottom: 24px;
+}
+
+.global-region-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #64748b;
+  margin: 0 0 12px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.global-indices-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.chart-period-selector {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.period-btn {
+  padding: 6px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: white;
+  font-size: 13px;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.period-btn:hover {
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
+
+.period-btn.active {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: white;
+}
+
+.global-index-card {
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 16px;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.global-index-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.global-index-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.global-index-region {
+  font-size: 11px;
+  color: #64748b;
+  white-space: nowrap;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.global-index-symbol {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.global-index-price {
+  font-size: 22px;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 4px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.global-index-desc {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 6px;
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.global-index-change {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.global-index-change.up {
+  color: #22c55e;
+}
+
+.global-index-change.down {
+  color: #ef4444;
+}
+
+.global-change-label {
+  font-size: 10px;
+  opacity: 0.6;
+  margin-right: 4px;
+}
+
+.global-change-percent {
+  opacity: 0.8;
+}
+
+.global-index-card.expanded {
+  grid-column: 1 / -1;
+  background: white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.global-mini-chart {
+  height: 60px;
+  margin-top: auto;
+  padding-top: 8px;
+  flex-shrink: 0;
+}
+
+.global-detail-chart {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e2e8f0;
+  height: 200px;
+}
+
+.global-chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.global-chart-range {
+  font-size: 11px;
+  color: #94a3b8;
+}
