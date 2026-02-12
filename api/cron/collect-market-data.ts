@@ -126,6 +126,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
   try {
+    // Get the most recent record from DB for fallback values (monthly indicators)
+    const { data: previousRecord } = await supabase
+      .from('market_indicators_history')
+      .select('*')
+      .order('date', { ascending: false })
+      .limit(1)
+      .single()
+
     // Parallel fetch all data
     const [
       fearGreedValue,
@@ -279,16 +287,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let gdpGrowthQoQ: number | null = null
     if (gdpGrowthData.length > 0) {
       gdpGrowthQoQ = Math.round(parseFloat(gdpGrowthData[0].value) * 100) / 100
+    } else if (previousRecord?.gdp_growth_qoq !== null && previousRecord?.gdp_growth_qoq !== undefined) {
+      gdpGrowthQoQ = previousRecord.gdp_growth_qoq
     }
 
     let ismManufacturing: number | null = null
     if (ismManufacturingData.length > 0) {
       ismManufacturing = Math.round(parseFloat(ismManufacturingData[0].value) * 100) / 100
+    } else if (previousRecord?.ism_manufacturing !== null && previousRecord?.ism_manufacturing !== undefined) {
+      ismManufacturing = previousRecord.ism_manufacturing
     }
 
     let ismServices: number | null = null
     if (ismServicesData.length > 0) {
       ismServices = Math.round(parseFloat(ismServicesData[0].value) * 100) / 100
+    } else if (previousRecord?.ism_services !== null && previousRecord?.ism_services !== undefined) {
+      ismServices = previousRecord.ism_services
     }
 
     let retailSalesYoY: number | null = null
@@ -296,6 +310,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const current = parseFloat(retailSalesData[0].value)
       const yearAgo = parseFloat(retailSalesData[12].value)
       retailSalesYoY = Math.round(calculateYoYChange(current, yearAgo) * 100) / 100
+    } else if (previousRecord?.retail_sales_yoy !== null && previousRecord?.retail_sales_yoy !== undefined) {
+      retailSalesYoY = previousRecord.retail_sales_yoy
     }
 
     let cpiYoY: number | null = null
@@ -303,6 +319,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const current = parseFloat(cpiData[0].value)
       const yearAgo = parseFloat(cpiData[12].value)
       cpiYoY = Math.round(calculateYoYChange(current, yearAgo) * 100) / 100
+    } else if (previousRecord?.cpi_yoy !== null && previousRecord?.cpi_yoy !== undefined) {
+      cpiYoY = previousRecord.cpi_yoy
     }
 
     let coreCpiYoY: number | null = null
@@ -310,6 +328,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const current = parseFloat(coreCpiData[0].value)
       const yearAgo = parseFloat(coreCpiData[12].value)
       coreCpiYoY = Math.round(calculateYoYChange(current, yearAgo) * 100) / 100
+    } else if (previousRecord?.core_cpi_yoy !== null && previousRecord?.core_cpi_yoy !== undefined) {
+      coreCpiYoY = previousRecord.core_cpi_yoy
     }
 
     let pceYoY: number | null = null
@@ -317,6 +337,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const current = parseFloat(pceData[0].value)
       const yearAgo = parseFloat(pceData[12].value)
       pceYoY = Math.round(calculateYoYChange(current, yearAgo) * 100) / 100
+    } else if (previousRecord?.pce_yoy !== null && previousRecord?.pce_yoy !== undefined) {
+      pceYoY = previousRecord.pce_yoy
     }
 
     let corePceYoY: number | null = null
@@ -324,6 +346,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const current = parseFloat(corePceData[0].value)
       const yearAgo = parseFloat(corePceData[12].value)
       corePceYoY = Math.round(calculateYoYChange(current, yearAgo) * 100) / 100
+    } else if (previousRecord?.core_pce_yoy !== null && previousRecord?.core_pce_yoy !== undefined) {
+      corePceYoY = previousRecord.core_pce_yoy
     }
 
     let ppiYoY: number | null = null
@@ -331,6 +355,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const current = parseFloat(ppiData[0].value)
       const yearAgo = parseFloat(ppiData[12].value)
       ppiYoY = Math.round(calculateYoYChange(current, yearAgo) * 100) / 100
+    } else if (previousRecord?.ppi_yoy !== null && previousRecord?.ppi_yoy !== undefined) {
+      ppiYoY = previousRecord.ppi_yoy
     }
 
     let nonfarmPayrollsMoM: number | null = null
@@ -338,16 +364,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const current = parseFloat(payrollsData[0].value)
       const prevMonth = parseFloat(payrollsData[1].value)
       nonfarmPayrollsMoM = Math.round((current - prevMonth) * 1000)
+    } else if (previousRecord?.nonfarm_payrolls_mom !== null && previousRecord?.nonfarm_payrolls_mom !== undefined) {
+      nonfarmPayrollsMoM = previousRecord.nonfarm_payrolls_mom
     }
 
     let unemploymentRate: number | null = null
     if (unemploymentData.length > 0) {
       unemploymentRate = Math.round(parseFloat(unemploymentData[0].value) * 100) / 100
+    } else if (previousRecord?.unemployment_rate !== null && previousRecord?.unemployment_rate !== undefined) {
+      unemploymentRate = previousRecord.unemployment_rate
     }
 
     let laborParticipation: number | null = null
     if (laborParticipationData.length > 0) {
       laborParticipation = Math.round(parseFloat(laborParticipationData[0].value) * 100) / 100
+    } else if (previousRecord?.labor_participation !== null && previousRecord?.labor_participation !== undefined) {
+      laborParticipation = previousRecord.labor_participation
     }
 
     let treasury10y: number | null = null
