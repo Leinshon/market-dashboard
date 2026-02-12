@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { createClient } from '@supabase/supabase-js'
-import { calculateCompositeScore } from '../../src/lib/composite-score'
+import { calculateCompositeScore } from '../../src/lib/composite-score.js'
 
 // Vercel Cron Function - 매일 오후 10시(UTC) 실행
 // 미국 장 마감 후 + CNN Fear & Greed 마감 후 확정값 수집
