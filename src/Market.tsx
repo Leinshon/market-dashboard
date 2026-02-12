@@ -932,7 +932,7 @@ ${macroSummary}
 ${globalSummary}
 권장배분: 주식 ${stanceInfo.allocation.stocks}, 채권 ${stanceInfo.allocation.bonds}, 현금 ${stanceInfo.allocation.cash}`
 
-      const response = await fetch('/.netlify/functions/market-chat', {
+      const response = await fetch('/api/market-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
