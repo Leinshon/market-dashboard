@@ -360,6 +360,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       treasury2y = Math.round(parseFloat(dgs2Data[0].value) * 1000) / 1000
     }
 
+    let treasury3m: number | null = null
+    if (dgs3moData.length > 0) {
+      treasury3m = Math.round(parseFloat(dgs3moData[0].value) * 1000) / 1000
+    }
+
+    // Calculate Equity Risk Premium (ERP)
+    // ERP = Earnings Yield (E/P) - 10Y Treasury Yield
+    // Approximate earnings yield as inverse of P/E ratio (~20 for S&P 500, so ~5%)
+    // Or use actual earnings yield if available
+    let erp: number | null = null
+    if (treasury10y !== null) {
+      // Using estimated earnings yield of 5% (inverse of P/E ~20)
+      // This is a simplified calculation
+      const earningsYield = 5.0
+      erp = Math.round((earningsYield - treasury10y) * 100) / 100
+    }
+
     let dollarIndex: number | null = null
     if (dxyData?.chart?.result?.[0]) {
       dollarIndex = Math.round(dxyData.chart.result[0].meta.regularMarketPrice * 100) / 100
@@ -408,6 +425,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       labor_participation: laborParticipation,
       treasury_10y: treasury10y,
       treasury_2y: treasury2y,
+      treasury_3m: treasury3m,
+      erp: erp,
       dollar_index: dollarIndex,
       raw_data: {
         fearGreed: fearGreedValue,
@@ -440,6 +459,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         laborParticipation,
         treasury10y,
         treasury2y,
+        treasury3m,
+        erp,
         dollarIndex,
       },
     }
