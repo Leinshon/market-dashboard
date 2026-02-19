@@ -767,13 +767,14 @@ export default function Market() {
   }, [marketData, marketLoading])
 
   // 글로벌 지수 데이터 로드 (DB에서)
+  const [globalFetched, setGlobalFetched] = useState(false)
+
   useEffect(() => {
-    if (activeTab === 'global' && globalHistory.length === 0 && !globalLoading) {
+    if (activeTab === 'global' && !globalFetched && !globalLoading) {
       setGlobalLoading(true)
 
       const fetchGlobalIndices = async () => {
         try {
-          // DB에서 히스토리 데이터 가져오기 (여러 배치로 나눠서)
           const allData: typeof globalHistory = []
           const batchSize = 1000
           let offset = 0
@@ -797,20 +798,14 @@ export default function Market() {
             }
           }
 
-          const historyData = allData
-          const error = null
+          if (allData.length > 0) {
+            setGlobalHistory(allData)
 
-          if (error) throw error
-
-          if (historyData && historyData.length > 0) {
-            setGlobalHistory(historyData)
-
-            // 최신 데이터로 현재 지수 정보 계산
-            const symbols = [...new Set(historyData.map(d => d.symbol))]
+            const symbols = [...new Set(allData.map(d => d.symbol))]
             const results: typeof globalIndices = []
 
             for (const symbol of symbols) {
-              const symbolData = historyData.filter(d => d.symbol === symbol)
+              const symbolData = allData.filter(d => d.symbol === symbol)
               if (symbolData.length < 2) continue
 
               const latest = symbolData[symbolData.length - 1]
@@ -833,13 +828,14 @@ export default function Market() {
         } catch (err) {
           console.error('Failed to fetch global indices:', err)
         } finally {
+          setGlobalFetched(true)
           setGlobalLoading(false)
         }
       }
 
       fetchGlobalIndices()
     }
-  }, [activeTab, globalHistory.length, globalLoading])
+  }, [activeTab, globalFetched, globalLoading])
 
   // 선택된 날짜의 데이터
   const selectedMarketData = useMemo(() => {
