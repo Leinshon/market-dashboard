@@ -13,7 +13,7 @@ import {
 } from 'chart.js'
 import { Line } from 'react-chartjs-2'
 import { supabase } from './lib/supabase'
-import { calculateCompositeScore } from './lib/composite-score'
+import { calculateTimingScore, calculateRiskSignal, type RiskSignal } from './lib/composite-score'
 import './Market.css'
 
 // Chart.js 등록
@@ -394,22 +394,23 @@ const calculateIndicatorScores = (
 }
 
 const calculateZScoreBasedScore = (data: MarketIndicators): number => {
-  return calculateCompositeScore({
-    hySpread: data.highYieldSpread,
-    vix: data.vix,
-    initialClaims: data.initialClaims?.value ?? null,
-    spyVs200MA: data.spyVs200MA?.percentAbove ?? null,
-    yieldCurve10Y2Y: data.yieldCurve10Y2Y,
+  return calculateTimingScore({
+    erp: data.erp,
+    buffettIndicator: data.buffettIndicator?.value ?? null,
   })
 }
 
 const calculateZScoreFromHistory = (record: MarketHistoryRecord): number => {
-  return calculateCompositeScore({
-    hy_spread: record.hy_spread,
-    vix: record.vix,
-    initial_claims: record.initial_claims,
-    spy_vs_200ma: record.spy_vs_200ma,
-    yield_curve_10y2y: record.yield_curve_10y2y,
+  return calculateTimingScore({
+    erp: record.erp,
+    buffett_indicator: record.buffett_indicator,
+  })
+}
+
+const calculateRiskFromIndicators = (data: MarketIndicators): RiskSignal => {
+  return calculateRiskSignal({
+    vix: data.vix,
+    hySpread: data.highYieldSpread,
   })
 }
 
@@ -430,42 +431,42 @@ const getStanceInfo = (stance: InvestmentStance) => {
     aggressive_plus: {
       label: '매수 적기',
       color: '#059669',
-      description: '목돈 투자에 가장 좋은 시기입니다. 2020년 코로나 폭락 때와 유사한 수준으로, 10년에 몇 번 나타나는 드문 기회입니다. 과거 이런 시기에 목돈을 투자하면 3개월 후 100% 상승했고, 평균 +10% 이상의 수익을 기록했습니다.',
+      description: 'ERP/버핏지표 기준 매우 저평가 구간입니다. 1996~2026 데이터에서 이 점수대에 진입한 모든 시기에 12개월 후 98.5%가 상승, 평균 +17.2% 수익을 기록했습니다.',
       allocation: { stocks: '90%', bonds: '10%', cash: '0%' },
       action: '목돈이 있다면 지금 투자를 적극 고려하세요',
     },
     aggressive: {
       label: '매수 우위',
       color: '#16a34a',
-      description: '목돈 투자에 좋은 시기입니다. 시장에 공포심이 퍼져있어 주식이 저렴한 구간입니다. 과거 이런 시기에 3개월 후 89%는 상승해 평균 +6.5% 수익을 거뒀습니다.',
+      description: '저평가 영역에 진입한 구간입니다. 12개월 후 82.8%가 상승해 평균 +7.7% 수익이 났습니다.',
       allocation: { stocks: '80%', bonds: '15%', cash: '5%' },
       action: '목돈 투자를 고려해볼 만한 시점입니다',
     },
     moderate_aggressive: {
       label: '소폭 매수 우위',
       color: '#22c55e',
-      description: '목돈 투자에 나쁘지 않은 시기입니다. 과거 이런 시기에 3개월 후 90%는 상승해 평균 +5.3% 수익을 거뒀고, 하락 시에도 손실폭이 제한적이었습니다(-3.5%). 목돈을 넣어도 괜찮은 구간입니다.',
+      description: '평균을 살짝 웃도는 매력도. 12개월 후 78.9%가 상승, 평균 +7.8% 수익을 기록했습니다.',
       allocation: { stocks: '70%', bonds: '20%', cash: '10%' },
       action: '목돈은 2~3회 분할 매수를 권장합니다',
     },
     neutral: {
       label: '중립',
       color: '#f59e0b',
-      description: '목돈 투자를 서두를 필요가 없는 시기입니다. 과거 이런 시기에 3개월 후 51-67%는 상승했지만, 평균 수익은 0~1%에 불과했습니다. 동전 던지기 수준이라 "지금이 기회다"라고 말하기 어렵습니다.',
+      description: '점수만으로는 방향성을 판단하기 어려운 구간입니다. 12개월 후 73.7%가 상승했지만 변동성이 큽니다. 리스크 신호와 함께 보세요.',
       allocation: { stocks: '60%', bonds: '25%', cash: '15%' },
       action: '적립식 투자는 유지하되, 목돈은 더 좋은 기회를 기다리세요',
     },
     moderate_defensive: {
       label: '소폭 방어 우위',
       color: '#f97316',
-      description: '목돈 투자에 좋지 않은 시기입니다. 과거 이런 시기에 3개월 후 승률은 58%였지만 평균 수익은 0%입니다. 하락 시 -4.5% 손실이 발생했습니다.',
+      description: '평균 이하의 매력도. 12개월 후 승률은 65.2%로 떨어지고, 평균 수익도 +7.5%이지만 하락 시 평균 -17.7% 손실이 발생했습니다.',
       allocation: { stocks: '50%', bonds: '25%', cash: '25%' },
       action: '목돈 투자는 보류하고, 더 좋은 기회를 기다리세요',
     },
     defensive: {
       label: '방어 우위',
       color: '#ef4444',
-      description: '목돈 투자를 피해야 할 시기입니다. 과거 이런 시기에 3개월 후 승률은 8-37%로 낮았고, 평균 -3% 손실이 발생했습니다. 하락 시 -7% 이상 손실 위험이 있습니다.',
+      description: '고평가 구간. 12개월 후 승률 64.6%, 평균 수익 +2.1%에 그쳤습니다. 하락 시 평균 -10.5% 손실이 발생했습니다.',
       allocation: { stocks: '40%', bonds: '20%', cash: '40%' },
       action: '목돈은 현금으로 보유하고, 조정을 기다리세요',
     },
@@ -480,38 +481,40 @@ const getStanceInfo = (stance: InvestmentStance) => {
   return info[stance]
 }
 
+// 실측값: scripts/recalibrate.py 출력 (1996~2026, 1718개 sample)
+// 점수 분포가 정점 ~68로 좁아 6/12개월 horizon이 의미있음 (4/12주는 노이즈)
 const getStanceProbability = (stance: InvestmentStance) => {
   const probabilities: Record<InvestmentStance, {
-    week4: { up: number; down: number; avgUp: number; avgDown: number };
-    week12: { up: number; down: number; avgUp: number; avgDown: number };
+    month6: { up: number; down: number; avgUp: number; avgDown: number };
+    month12: { up: number; down: number; avgUp: number; avgDown: number };
   }> = {
     aggressive_plus: {
-      week4: { up: 100, down: 0, avgUp: 12.6, avgDown: 0 },
-      week12: { up: 100, down: 0, avgUp: 23.0, avgDown: 0 },
+      month6:  { up: 88, down: 12, avgUp: 12.2, avgDown: -3.4 },
+      month12: { up: 99, down: 1,  avgUp: 17.5, avgDown: -1.5 },
     },
     aggressive: {
-      week4: { up: 100, down: 0, avgUp: 4.6, avgDown: 0 },
-      week12: { up: 88, down: 12, avgUp: 11.8, avgDown: -0.8 },
+      month6:  { up: 71, down: 29, avgUp: 7.6,  avgDown: -14.6 },
+      month12: { up: 83, down: 17, avgUp: 14.3, avgDown: -24.2 },
     },
     moderate_aggressive: {
-      week4: { up: 72, down: 28, avgUp: 5.4, avgDown: -6.9 },
-      week12: { up: 86, down: 14, avgUp: 7.0, avgDown: -2.5 },
+      month6:  { up: 73, down: 27, avgUp: 7.7,  avgDown: -6.1 },
+      month12: { up: 79, down: 21, avgUp: 13.1, avgDown: -11.9 },
     },
     neutral: {
-      week4: { up: 58, down: 42, avgUp: 4.2, avgDown: -4.3 },
-      week12: { up: 75, down: 25, avgUp: 7.4, avgDown: -5.7 },
+      month6:  { up: 77, down: 23, avgUp: 12.1, avgDown: -9.3 },
+      month12: { up: 74, down: 26, avgUp: 22.4, avgDown: -11.1 },
     },
     moderate_defensive: {
-      week4: { up: 69, down: 31, avgUp: 2.7, avgDown: -4.6 },
-      week12: { up: 67, down: 33, avgUp: 5.5, avgDown: -7.5 },
+      month6:  { up: 62, down: 38, avgUp: 12.0, avgDown: -10.3 },
+      month12: { up: 65, down: 35, avgUp: 21.0, avgDown: -17.7 },
     },
     defensive: {
-      week4: { up: 72, down: 28, avgUp: 1.9, avgDown: -2.2 },
-      week12: { up: 84, down: 16, avgUp: 4.1, avgDown: -5.7 },
+      month6:  { up: 61, down: 39, avgUp: 7.1,  avgDown: -5.8 },
+      month12: { up: 65, down: 35, avgUp: 9.0,  avgDown: -10.5 },
     },
     unknown: {
-      week4: { up: 0, down: 0, avgUp: 0, avgDown: 0 },
-      week12: { up: 0, down: 0, avgUp: 0, avgDown: 0 },
+      month6:  { up: 0, down: 0, avgUp: 0, avgDown: 0 },
+      month12: { up: 0, down: 0, avgUp: 0, avgDown: 0 },
     },
   }
   return probabilities[stance]
@@ -1518,64 +1521,64 @@ ${globalSummary}
                     </div>
                   </div>
 
-                  {/* 4주/12주 확률 */}
+                  {/* 6개월/12개월 확률 */}
                   {(() => {
                     const prob = getStanceProbability(stance)
                     return (
                       <div className="market-probability-box">
-                        <span className="market-probability-title">지금 투자하면? (2020~2026 백테스트 기준)</span>
+                        <span className="market-probability-title">지금 투자하면? (1996~2026 30년 백테스트 기준)</span>
                         <div className="market-probability-grid">
                           <div className="market-probability-period">
-                            <span className="market-probability-label">4주 후</span>
+                            <span className="market-probability-label">6개월 후</span>
                             <div className="market-probability-bars">
                               <div className="market-probability-bar-row">
                                 <span className="market-probability-direction up">상승</span>
                                 <div className="market-probability-bar-track">
                                   <div
                                     className="market-probability-bar-fill up"
-                                    style={{ width: `${prob.week4.up}%` }}
+                                    style={{ width: `${prob.month6.up}%` }}
                                   />
                                 </div>
-                                <span className="market-probability-value">{prob.week4.up}%</span>
-                                <span className="market-probability-avg">(+{prob.week4.avgUp.toFixed(1)}%)</span>
+                                <span className="market-probability-value">{prob.month6.up}%</span>
+                                <span className="market-probability-avg">(+{prob.month6.avgUp.toFixed(1)}%)</span>
                               </div>
                               <div className="market-probability-bar-row">
                                 <span className="market-probability-direction down">하락</span>
                                 <div className="market-probability-bar-track">
                                   <div
                                     className="market-probability-bar-fill down"
-                                    style={{ width: `${prob.week4.down}%` }}
+                                    style={{ width: `${prob.month6.down}%` }}
                                   />
                                 </div>
-                                <span className="market-probability-value">{prob.week4.down}%</span>
-                                <span className="market-probability-avg">({prob.week4.avgDown.toFixed(1)}%)</span>
+                                <span className="market-probability-value">{prob.month6.down}%</span>
+                                <span className="market-probability-avg">({prob.month6.avgDown.toFixed(1)}%)</span>
                               </div>
                             </div>
                           </div>
                           <div className="market-probability-period">
-                            <span className="market-probability-label">12주 후</span>
+                            <span className="market-probability-label">12개월 후</span>
                             <div className="market-probability-bars">
                               <div className="market-probability-bar-row">
                                 <span className="market-probability-direction up">상승</span>
                                 <div className="market-probability-bar-track">
                                   <div
                                     className="market-probability-bar-fill up"
-                                    style={{ width: `${prob.week12.up}%` }}
+                                    style={{ width: `${prob.month12.up}%` }}
                                   />
                                 </div>
-                                <span className="market-probability-value">{prob.week12.up}%</span>
-                                <span className="market-probability-avg">(+{prob.week12.avgUp.toFixed(1)}%)</span>
+                                <span className="market-probability-value">{prob.month12.up}%</span>
+                                <span className="market-probability-avg">(+{prob.month12.avgUp.toFixed(1)}%)</span>
                               </div>
                               <div className="market-probability-bar-row">
                                 <span className="market-probability-direction down">하락</span>
                                 <div className="market-probability-bar-track">
                                   <div
                                     className="market-probability-bar-fill down"
-                                    style={{ width: `${prob.week12.down}%` }}
+                                    style={{ width: `${prob.month12.down}%` }}
                                   />
                                 </div>
-                                <span className="market-probability-value">{prob.week12.down}%</span>
-                                <span className="market-probability-avg">({prob.week12.avgDown.toFixed(1)}%)</span>
+                                <span className="market-probability-value">{prob.month12.down}%</span>
+                                <span className="market-probability-avg">({prob.month12.avgDown.toFixed(1)}%)</span>
                               </div>
                             </div>
                           </div>
@@ -1585,6 +1588,42 @@ ${globalSummary}
                   })()}
                 </div>
               </div>
+
+              {/* 리스크 신호 (VIX + HY Spread) */}
+              {(() => {
+                const risk = calculateRiskFromIndicators(selectedMarketData)
+                const levelMeta: Record<typeof risk.level, { label: string; color: string; desc: string }> = {
+                  normal:   { label: '정상',     color: '#22c55e', desc: '변동성·신용 스트레스 정상 범위.' },
+                  elevated: { label: '주의',     color: '#f59e0b', desc: '평소보다 변동성/신용 스트레스 상승. 분할 매수 권장.' },
+                  high:     { label: '경계',     color: '#f97316', desc: '시장 스트레스 높음. 신규 진입은 보수적으로.' },
+                  extreme:  { label: '극단',     color: '#ef4444', desc: '역사적 상위 5% 스트레스 구간. 큰 변동성 동반.' },
+                }
+                const meta = levelMeta[risk.level]
+                const fmt = (v: number | null) => v === null ? '—' : v.toFixed(2)
+                return (
+                  <div className="market-phase-card" style={{ borderColor: meta.color, marginTop: '16px' }}>
+                    <div className="market-phase-header">
+                      <div className="market-phase-badge" style={{ backgroundColor: meta.color }}>
+                        리스크 {meta.label}
+                      </div>
+                      <div className="market-phase-score">
+                        <span className="market-score-label">VIX / HY</span>
+                        <span className="market-score-value" style={{ fontSize: '20px' }}>
+                          {fmt(risk.vix.value)} / {fmt(risk.hy.value)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="market-percentile-info">
+                      <span className="market-percentile-item">VIX: {risk.vix.level}</span>
+                      <span className="market-percentile-divider">|</span>
+                      <span className="market-percentile-item">HY Spread: {risk.hy.level}</span>
+                    </div>
+                    <p style={{ marginTop: '12px', fontSize: '13px', color: '#475569', lineHeight: 1.5 }}>
+                      {meta.desc} 타이밍 점수와 함께 보세요 — 점수가 높아도 리스크 극단이면 진입을 분할하는 게 안전합니다.
+                    </p>
+                  </div>
+                )
+              })()}
 
               {/* 투자 매력도 vs S&P500 차트 */}
               {marketHistory.length > 0 && (() => {

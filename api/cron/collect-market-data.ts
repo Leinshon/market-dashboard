@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { createClient } from '@supabase/supabase-js'
-import { calculateCompositeScore } from '../../src/lib/composite-score.js'
+import { calculateTimingScore } from '../../src/lib/composite-score.js'
 
 // Vercel Cron Function - 매일 오후 10시(UTC) 실행
 // 미국 장 마감 후 + CNN Fear & Greed 마감 후 확정값 수집
@@ -682,13 +682,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       copperGoldRatio = Math.round((copperPrice / goldFuturesPrice) * 1_000_000) / 1_000_000
     }
 
-    // Calculate composite score
-    const compositeScore = calculateCompositeScore({
-      vix,
-      spyVs200MA,
-      hySpread,
-      yieldCurve10Y2Y,
-      initialClaims,
+    // Calculate timing score (ERP + Buffett 기반)
+    // composite_score 컬럼에 저장하지만 의미는 "투자 매력도 (timing)" 로 변경됨
+    const compositeScore = calculateTimingScore({
+      erp,
+      buffettIndicator,
     })
 
     // Save to Supabase
