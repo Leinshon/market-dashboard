@@ -595,35 +595,17 @@ const generateExtremeIndicatorCommentary = (
       const isExtremeLow = percentile <= 20
       const extremeLabel = isExtremeLow ? `하위 ${percentile}%` : `상위 ${100 - percentile}%`
 
-      if (indicator.name === 'VIX') {
+      if (indicator.name === 'Equity Risk Premium') {
         if (isExtremeLow) {
-          commentaries.push(`${koreanName}가 ${indicator.value}로 ${extremeLabel} 수준입니다. 시장 안도감이 높아 조정 가능성에 유의하세요.`)
+          commentaries.push(`${koreanName}가 ${indicator.value}로 ${extremeLabel} 수준입니다. 채권 대비 주식의 기대 초과수익이 매우 낮아, 역사적으로 후속 12개월 수익이 부진했던 구간입니다.`)
         } else {
-          commentaries.push(`${koreanName}가 ${indicator.value}로 ${extremeLabel} 수준의 공포 구간입니다. 역사적으로 높은 VIX는 매수 기회였습니다.`)
+          commentaries.push(`${koreanName}가 ${indicator.value}로 ${extremeLabel} 수준입니다. 채권 대비 주식의 위험 보상이 매우 두꺼운 구간으로, 역사적으로 매력적인 진입 시점이었습니다.`)
         }
-      } else if (indicator.name === 'HY Spread') {
+      } else if (indicator.name === 'Buffett Indicator') {
         if (isExtremeLow) {
-          commentaries.push(`${koreanName}가 ${indicator.value}로 ${extremeLabel} 수준입니다. 신용 리스크 경계심이 낮아 주의가 필요합니다.`)
+          commentaries.push(`${koreanName}가 ${indicator.value}로 ${extremeLabel} 수준입니다. 시총/GDP 비율이 역사적 저점 근처로, 장기 보유 기준 저평가 구간입니다.`)
         } else {
-          commentaries.push(`${koreanName}가 ${indicator.value}로 ${extremeLabel} 수준입니다. 신용 스트레스가 높지만 역발상 매수 기회일 수 있습니다.`)
-        }
-      } else if (indicator.name === 'Initial Claims') {
-        if (isExtremeLow) {
-          commentaries.push(`${koreanName}가 ${indicator.value}로 ${extremeLabel} 수준입니다. 고용시장이 과열 상태로 긴축 지속 가능성이 있습니다.`)
-        } else {
-          commentaries.push(`${koreanName}가 ${indicator.value}로 ${extremeLabel} 수준입니다. 고용 악화는 연준 완화 전환 신호일 수 있습니다.`)
-        }
-      } else if (indicator.name === 'S&P vs 200MA') {
-        if (isExtremeLow) {
-          commentaries.push(`S&P500이 200일선 대비 ${indicator.value}로 ${extremeLabel} 수준입니다. 기술적으로 저점 매수 구간입니다.`)
-        } else {
-          commentaries.push(`S&P500이 200일선 대비 ${indicator.value}로 ${extremeLabel} 수준입니다. 과열 구간으로 추격 매수는 주의하세요.`)
-        }
-      } else if (indicator.name === 'Yield Curve 10Y-2Y') {
-        if (isExtremeLow) {
-          commentaries.push(`${koreanName}가 ${indicator.value}로 ${extremeLabel} 수준의 역전 상태입니다. 경기 침체 우려가 있지만 주가는 선반영하는 경향이 있습니다.`)
-        } else {
-          commentaries.push(`${koreanName}가 ${indicator.value}로 정상화되어 ${extremeLabel} 수준입니다. 경기 회복 기대가 반영되고 있습니다.`)
+          commentaries.push(`${koreanName}가 ${indicator.value}로 ${extremeLabel} 수준입니다. 시총/GDP 비율이 역사적 고점 근처로, 장기 기대수익률이 낮은 구간입니다.`)
         }
       }
     }
@@ -966,7 +948,7 @@ ${globalSummary}
       <header className="calc-header">
         <h1 className="calc-title">글로벌 시장 환경 진단</h1>
         <p className="calc-subtitle">
-          10년 상관분석 기반 5개 핵심 지표로 투자 매력도 산출. 공포/저평가일수록 점수 상승
+          1996~2026 30년 분석 기반. ERP·버핏지표로 매력도 산출, VIX·HY 스프레드는 리스크 신호로 별도 표시
         </p>
       </header>
 
@@ -1227,12 +1209,11 @@ ${globalSummary}
           const stance = determineInvestmentStance(avgScore)
           const stanceInfo = getStanceInfo(stance)
 
+          // Timing Score 산출에 실제 사용되는 지표만 핵심으로 표시 (ERP + Buffett)
+          // VIX, HY Spread는 Risk Signal 카드에서 별도 표시
           const indicatorWeightsDisplay: Record<string, number> = {
-            'HY Spread': 28.1,
-            'VIX': 25.7,
-            'Initial Claims': 23.5,
-            'S&P vs 200MA': 16.3,
-            'Yield Curve 10Y-2Y': 6.3,
+            'Equity Risk Premium': 66.7,
+            'Buffett Indicator': 33.3,
           }
           const coreIndicators = scores.filter(s => indicatorWeightsDisplay[s.name] !== undefined)
           const refIndicators = scores.filter(s => indicatorWeightsDisplay[s.name] === undefined)
