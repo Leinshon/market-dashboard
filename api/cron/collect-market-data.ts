@@ -118,6 +118,158 @@ async function fetchDBnomicsISM(provider: string, dataset: string, series: strin
   }
 }
 
+// S&P 500 Earnings Yield scraper (multpl.com)
+// Returns trailing E/P as percent (e.g. 3.12 for 3.12%)
+async function fetchSP500EarningsYield(): Promise<number | null> {
+  try {
+    const response = await fetch('https://www.multpl.com/s-p-500-earnings-yield', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html',
+      },
+    })
+    if (!response.ok) {
+      console.warn(`multpl.com earnings yield warning: ${response.status}`)
+      return null
+    }
+    const html = await response.text()
+    // Page renders: `<div id="current">Current S&P 500 Earnings Yield: <b>3.12%</b> ...</div>`
+    // Be lenient about whitespace/tags between label and number.
+    const match = html.match(/Current S&amp;P 500 Earnings Yield[\s\S]{0,200}?(\d+\.\d+)\s*%/i)
+      || html.match(/Current S&P 500 Earnings Yield[\s\S]{0,200}?(\d+\.\d+)\s*%/i)
+    if (!match) {
+      console.warn('multpl.com earnings yield: pattern not matched')
+      return null
+    }
+    const value = parseFloat(match[1])
+    if (!Number.isFinite(value) || value <= 0 || value > 25) {
+      console.warn(`multpl.com earnings yield: out-of-range value ${value}`)
+      return null
+    }
+    return Math.round(value * 100) / 100
+  } catch (error) {
+    console.warn('multpl.com earnings yield error:', error)
+    return null
+  }
+}
+
+// Per-frequency stale thresholds.
+// previousRecord acts as fallback when a source API fails, but only within these windows.
+// Beyond the window the value is treated as too old to trust and we emit null instead.
+const STALE_THRESHOLDS = {
+  daily: 7,
+  weekly: 21,
+  monthly: 45,
+  quarterly: 120,
+} as const
+
+const FIELD_FREQUENCY: Record<string, keyof typeof STALE_THRESHOLDS> = {
+  gdp_growth_qoq: 'quarterly',
+  ism_manufacturing: 'monthly',
+  ism_services: 'monthly',
+  retail_sales_yoy: 'monthly',
+  cpi_yoy: 'monthly',
+  core_cpi_yoy: 'monthly',
+  pce_yoy: 'monthly',
+  core_pce_yoy: 'monthly',
+  ppi_yoy: 'monthly',
+  nonfarm_payrolls_mom: 'monthly',
+  unemployment_rate: 'monthly',
+  labor_participation: 'monthly',
+  erp: 'daily',
+}
+
+// Sanity bounds per field. Values outside these ranges are nulled before save and logged.
+// Ranges are chosen wide enough to cover historical extremes (e.g. COVID claims spike).
+const FIELD_BOUNDS: Record<string, [number, number]> = {
+  fear_greed: [0, 100],
+  vix: [5, 200],
+  spy_price: [10, 10000],
+  qqq_price: [10, 10000],
+  sgov_price: [50, 200],
+  gld_price: [10, 1000],
+  schd_price: [10, 1000],
+  vym_price: [10, 1000],
+  spy_vs_200ma: [-60, 60],
+  buffett_indicator: [30, 500],
+  fed_balance_sheet_yoy: [-50, 200],
+  m2_growth_yoy: [-15, 40],
+  hy_spread: [0, 30],
+  yield_curve_10y2y: [-5, 5],
+  yield_curve_10y3m: [-6, 6],
+  initial_claims: [100_000, 8_000_000],
+  composite_score: [0, 100],
+  gdp_growth_qoq: [-40, 40],
+  ism_manufacturing: [20, 80],
+  ism_services: [20, 80],
+  retail_sales_yoy: [-30, 60],
+  cpi_yoy: [-5, 25],
+  core_cpi_yoy: [-5, 25],
+  pce_yoy: [-5, 25],
+  core_pce_yoy: [-5, 25],
+  ppi_yoy: [-25, 50],
+  nonfarm_payrolls_mom: [-25_000_000, 5_000_000],
+  unemployment_rate: [1, 30],
+  labor_participation: [50, 75],
+  treasury_10y: [0, 25],
+  treasury_2y: [0, 25],
+  treasury_3m: [0, 25],
+  erp: [-15, 20],
+  dollar_index: [60, 200],
+  sahm_rule: [-2, 5],
+  hyg_price: [30, 200],
+  lqd_price: [50, 250],
+  hyg_lqd_ratio: [0.2, 2.5],
+  vix_9d: [5, 200],
+  vix_term_ratio: [0.3, 3],
+  inflation_5y5y: [0, 8],
+  copper_price: [0.5, 15],
+  gold_futures_price: [200, 10_000],
+  copper_gold_ratio: [0.00005, 0.01],
+}
+
+function validateRecord<T extends Record<string, unknown>>(record: T): T {
+  const sanitized: Record<string, unknown> = { ...record }
+  for (const [field, [min, max]] of Object.entries(FIELD_BOUNDS)) {
+    const value = sanitized[field]
+    if (value === null || value === undefined) continue
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      console.warn(`Validation: non-numeric ${field}=${String(value)} → null`)
+      sanitized[field] = null
+      continue
+    }
+    if (value < min || value > max) {
+      console.warn(`Validation: out-of-range ${field}=${value} not in [${min}, ${max}] → null`)
+      sanitized[field] = null
+    }
+  }
+  return sanitized as T
+}
+
+function getStaleSafeFallback(
+  previousRecord: Record<string, unknown> | null,
+  field: string,
+  todayStr: string
+): number | null {
+  if (!previousRecord) return null
+  const value = previousRecord[field]
+  if (value === null || value === undefined) return null
+  if (typeof value !== 'number') return null
+
+  const freq = FIELD_FREQUENCY[field] ?? 'monthly'
+  const maxDays = STALE_THRESHOLDS[freq]
+
+  const prevDateStr = typeof previousRecord.date === 'string' ? previousRecord.date : undefined
+  if (prevDateStr) {
+    const ageDays = (new Date(todayStr).getTime() - new Date(prevDateStr).getTime()) / 86400000
+    if (ageDays > maxDays) {
+      console.warn(`Refusing stale fallback for ${field}: ${Math.round(ageDays)}d old (max ${maxDays}d for ${freq})`)
+      return null
+    }
+  }
+  return value
+}
+
 // Calculate 200-day MA
 function calculate200MA(prices: number[]): number {
   if (prices.length < 200) {
@@ -199,6 +351,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       payrollsData,
       unemploymentData,
       laborParticipationData,
+      sp500EarningsYield,
+      unemploymentHistoryData,
+      hygData,
+      lqdData,
+      vix9dData,
+      inflation5y5yData,
+      copperData,
+      goldFuturesData,
     ] = await Promise.all([
       fetchFearGreed(),
       fetchYahooQuote('^VIX'),
@@ -230,6 +390,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       fetchFRED('PAYEMS', FRED_API_KEY, 3),
       fetchFRED('UNRATE', FRED_API_KEY, 5),
       fetchFRED('CIVPART', FRED_API_KEY, 5),
+      fetchSP500EarningsYield(),
+      // Sahm Rule needs 14+ months: 12-month trailing min of 3-month rolling avg.
+      // Pull 18 to leave room for any single-month gaps.
+      fetchFRED('UNRATE', FRED_API_KEY, 18),
+      fetchYahooQuote('HYG'),
+      fetchYahooQuote('LQD'),
+      fetchYahooQuote('^VIX9D'),
+      fetchFRED('T5YIFR', FRED_API_KEY, 5),
+      fetchYahooQuote('HG=F'),
+      fetchYahooQuote('GC=F'),
     ])
 
     // Process data
@@ -320,22 +490,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let gdpGrowthQoQ: number | null = null
     if (gdpGrowthData.length > 0) {
       gdpGrowthQoQ = Math.round(parseFloat(gdpGrowthData[0].value) * 100) / 100
-    } else if (previousRecord?.gdp_growth_qoq !== null && previousRecord?.gdp_growth_qoq !== undefined) {
-      gdpGrowthQoQ = previousRecord.gdp_growth_qoq
+    } else {
+      gdpGrowthQoQ = getStaleSafeFallback(previousRecord, 'gdp_growth_qoq', today)
     }
 
     let ismManufacturing: number | null = null
     if (ismManufacturingData !== null) {
       ismManufacturing = ismManufacturingData
-    } else if (previousRecord?.ism_manufacturing !== null && previousRecord?.ism_manufacturing !== undefined) {
-      ismManufacturing = previousRecord.ism_manufacturing
+    } else {
+      ismManufacturing = getStaleSafeFallback(previousRecord, 'ism_manufacturing', today)
     }
 
     let ismServices: number | null = null
     if (ismServicesData !== null) {
       ismServices = ismServicesData
-    } else if (previousRecord?.ism_services !== null && previousRecord?.ism_services !== undefined) {
-      ismServices = previousRecord.ism_services
+    } else {
+      ismServices = getStaleSafeFallback(previousRecord, 'ism_services', today)
     }
 
     let retailSalesYoY: number | null = null
@@ -343,8 +513,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const current = parseFloat(retailSalesData[0].value)
       const yearAgo = parseFloat(retailSalesData[12].value)
       retailSalesYoY = Math.round(calculateYoYChange(current, yearAgo) * 100) / 100
-    } else if (previousRecord?.retail_sales_yoy !== null && previousRecord?.retail_sales_yoy !== undefined) {
-      retailSalesYoY = previousRecord.retail_sales_yoy
+    } else {
+      retailSalesYoY = getStaleSafeFallback(previousRecord, 'retail_sales_yoy', today)
     }
 
     let cpiYoY: number | null = null
@@ -352,8 +522,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const current = parseFloat(cpiData[0].value)
       const yearAgo = parseFloat(cpiData[12].value)
       cpiYoY = Math.round(calculateYoYChange(current, yearAgo) * 100) / 100
-    } else if (previousRecord?.cpi_yoy !== null && previousRecord?.cpi_yoy !== undefined) {
-      cpiYoY = previousRecord.cpi_yoy
+    } else {
+      cpiYoY = getStaleSafeFallback(previousRecord, 'cpi_yoy', today)
     }
 
     let coreCpiYoY: number | null = null
@@ -361,8 +531,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const current = parseFloat(coreCpiData[0].value)
       const yearAgo = parseFloat(coreCpiData[12].value)
       coreCpiYoY = Math.round(calculateYoYChange(current, yearAgo) * 100) / 100
-    } else if (previousRecord?.core_cpi_yoy !== null && previousRecord?.core_cpi_yoy !== undefined) {
-      coreCpiYoY = previousRecord.core_cpi_yoy
+    } else {
+      coreCpiYoY = getStaleSafeFallback(previousRecord, 'core_cpi_yoy', today)
     }
 
     let pceYoY: number | null = null
@@ -370,8 +540,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const current = parseFloat(pceData[0].value)
       const yearAgo = parseFloat(pceData[12].value)
       pceYoY = Math.round(calculateYoYChange(current, yearAgo) * 100) / 100
-    } else if (previousRecord?.pce_yoy !== null && previousRecord?.pce_yoy !== undefined) {
-      pceYoY = previousRecord.pce_yoy
+    } else {
+      pceYoY = getStaleSafeFallback(previousRecord, 'pce_yoy', today)
     }
 
     let corePceYoY: number | null = null
@@ -379,8 +549,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const current = parseFloat(corePceData[0].value)
       const yearAgo = parseFloat(corePceData[12].value)
       corePceYoY = Math.round(calculateYoYChange(current, yearAgo) * 100) / 100
-    } else if (previousRecord?.core_pce_yoy !== null && previousRecord?.core_pce_yoy !== undefined) {
-      corePceYoY = previousRecord.core_pce_yoy
+    } else {
+      corePceYoY = getStaleSafeFallback(previousRecord, 'core_pce_yoy', today)
     }
 
     let ppiYoY: number | null = null
@@ -388,8 +558,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const current = parseFloat(ppiData[0].value)
       const yearAgo = parseFloat(ppiData[12].value)
       ppiYoY = Math.round(calculateYoYChange(current, yearAgo) * 100) / 100
-    } else if (previousRecord?.ppi_yoy !== null && previousRecord?.ppi_yoy !== undefined) {
-      ppiYoY = previousRecord.ppi_yoy
+    } else {
+      ppiYoY = getStaleSafeFallback(previousRecord, 'ppi_yoy', today)
     }
 
     let nonfarmPayrollsMoM: number | null = null
@@ -397,22 +567,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const current = parseFloat(payrollsData[0].value)
       const prevMonth = parseFloat(payrollsData[1].value)
       nonfarmPayrollsMoM = Math.round((current - prevMonth) * 1000)
-    } else if (previousRecord?.nonfarm_payrolls_mom !== null && previousRecord?.nonfarm_payrolls_mom !== undefined) {
-      nonfarmPayrollsMoM = previousRecord.nonfarm_payrolls_mom
+    } else {
+      nonfarmPayrollsMoM = getStaleSafeFallback(previousRecord, 'nonfarm_payrolls_mom', today)
     }
 
     let unemploymentRate: number | null = null
     if (unemploymentData.length > 0) {
       unemploymentRate = Math.round(parseFloat(unemploymentData[0].value) * 100) / 100
-    } else if (previousRecord?.unemployment_rate !== null && previousRecord?.unemployment_rate !== undefined) {
-      unemploymentRate = previousRecord.unemployment_rate
+    } else {
+      unemploymentRate = getStaleSafeFallback(previousRecord, 'unemployment_rate', today)
     }
 
     let laborParticipation: number | null = null
     if (laborParticipationData.length > 0) {
       laborParticipation = Math.round(parseFloat(laborParticipationData[0].value) * 100) / 100
-    } else if (previousRecord?.labor_participation !== null && previousRecord?.labor_participation !== undefined) {
-      laborParticipation = previousRecord.labor_participation
+    } else {
+      laborParticipation = getStaleSafeFallback(previousRecord, 'labor_participation', today)
     }
 
     let treasury10y: number | null = null
@@ -431,20 +601,85 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Calculate Equity Risk Premium (ERP)
-    // ERP = Earnings Yield (E/P) - 10Y Treasury Yield
-    // Approximate earnings yield as inverse of P/E ratio (~20 for S&P 500, so ~5%)
-    // Or use actual earnings yield if available
+    // ERP = S&P 500 trailing Earnings Yield (E/P) - 10Y Treasury Yield
+    // Earnings yield is fetched live from multpl.com (trailing 12M).
+    // Falls back to previousRecord.erp only when both inputs are unavailable.
     let erp: number | null = null
-    if (treasury10y !== null) {
-      // Using estimated earnings yield of 5% (inverse of P/E ~20)
-      // This is a simplified calculation
-      const earningsYield = 5.0
-      erp = Math.round((earningsYield - treasury10y) * 100) / 100
+    if (sp500EarningsYield !== null && treasury10y !== null) {
+      erp = Math.round((sp500EarningsYield - treasury10y) * 100) / 100
+    } else {
+      erp = getStaleSafeFallback(previousRecord, 'erp', today)
     }
 
     let dollarIndex: number | null = null
     if (dxyData?.chart?.result?.[0]) {
       dollarIndex = Math.round(dxyData.chart.result[0].meta.regularMarketPrice * 100) / 100
+    }
+
+    // Sahm Rule = current 3-month avg UNRATE - min(3-month avg UNRATE) over trailing 12 months.
+    // unemploymentHistoryData is desc-sorted (newest first). Need >= 14 observations.
+    let sahmRule: number | null = null
+    if (unemploymentHistoryData.length >= 14) {
+      const rates = unemploymentHistoryData.map(o => parseFloat(o.value))
+      const threeMonthAvgs: number[] = []
+      // index i -> avg of months i, i+1, i+2 (i is most-recent-first). Need 12 trailing windows.
+      for (let i = 0; i < 12; i++) {
+        const win = rates.slice(i, i + 3)
+        if (win.length < 3 || win.some(v => !Number.isFinite(v))) continue
+        threeMonthAvgs.push(win.reduce((a, b) => a + b, 0) / 3)
+      }
+      if (threeMonthAvgs.length >= 2) {
+        const current = threeMonthAvgs[0]
+        const trailingMin = Math.min(...threeMonthAvgs.slice(0, 12))
+        sahmRule = Math.round((current - trailingMin) * 1000) / 1000
+      }
+    }
+    if (sahmRule === null) {
+      sahmRule = getStaleSafeFallback(previousRecord, 'sahm_rule', today)
+    }
+
+    // HYG (high yield ETF) / LQD (investment grade ETF) ratio — daily credit risk gauge.
+    let hygPrice: number | null = null
+    if (hygData?.chart?.result?.[0]) {
+      hygPrice = Math.round(hygData.chart.result[0].meta.regularMarketPrice * 100) / 100
+    }
+    let lqdPrice: number | null = null
+    if (lqdData?.chart?.result?.[0]) {
+      lqdPrice = Math.round(lqdData.chart.result[0].meta.regularMarketPrice * 100) / 100
+    }
+    let hygLqdRatio: number | null = null
+    if (hygPrice !== null && lqdPrice !== null && lqdPrice > 0) {
+      hygLqdRatio = Math.round((hygPrice / lqdPrice) * 10000) / 10000
+    }
+
+    // VIX term structure: VIX9D / VIX. > 1 = backwardation = near-term stress.
+    let vix9d: number | null = null
+    if (vix9dData?.chart?.result?.[0]) {
+      vix9d = Math.round(vix9dData.chart.result[0].meta.regularMarketPrice * 10000) / 10000
+    }
+    let vixTermRatio: number | null = null
+    if (vix9d !== null && vix !== null && vix > 0) {
+      vixTermRatio = Math.round((vix9d / vix) * 10000) / 10000
+    }
+
+    // 5Y5Y forward inflation expectation (FRED T5YIFR, daily, percent).
+    let inflation5y5y: number | null = null
+    if (inflation5y5yData.length > 0) {
+      inflation5y5y = Math.round(parseFloat(inflation5y5yData[0].value) * 10000) / 10000
+    }
+
+    // Copper (HG=F) / Gold (GC=F) — industrial-demand vs safe-haven ratio.
+    let copperPrice: number | null = null
+    if (copperData?.chart?.result?.[0]) {
+      copperPrice = Math.round(copperData.chart.result[0].meta.regularMarketPrice * 10000) / 10000
+    }
+    let goldFuturesPrice: number | null = null
+    if (goldFuturesData?.chart?.result?.[0]) {
+      goldFuturesPrice = Math.round(goldFuturesData.chart.result[0].meta.regularMarketPrice * 100) / 100
+    }
+    let copperGoldRatio: number | null = null
+    if (copperPrice !== null && goldFuturesPrice !== null && goldFuturesPrice > 0) {
+      copperGoldRatio = Math.round((copperPrice / goldFuturesPrice) * 1_000_000) / 1_000_000
     }
 
     // Calculate composite score
@@ -493,6 +728,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       treasury_3m: treasury3m,
       erp: erp,
       dollar_index: dollarIndex,
+      sahm_rule: sahmRule,
+      hyg_price: hygPrice,
+      lqd_price: lqdPrice,
+      hyg_lqd_ratio: hygLqdRatio,
+      vix_9d: vix9d,
+      vix_term_ratio: vixTermRatio,
+      inflation_5y5y: inflation5y5y,
+      copper_price: copperPrice,
+      gold_futures_price: goldFuturesPrice,
+      copper_gold_ratio: copperGoldRatio,
       raw_data: {
         fearGreed: fearGreedValue,
         vix,
@@ -525,14 +770,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         treasury10y,
         treasury2y,
         treasury3m,
+        sp500EarningsYield,
         erp,
         dollarIndex,
+        sahmRule,
+        hygPrice,
+        lqdPrice,
+        hygLqdRatio,
+        vix9d,
+        vixTermRatio,
+        inflation5y5y,
+        copperPrice,
+        goldFuturesPrice,
+        copperGoldRatio,
       },
     }
 
+    const safeRecord = validateRecord(record)
+
     const { error } = await supabase
       .from('market_indicators_history')
-      .upsert(record, { onConflict: 'date' })
+      .upsert(safeRecord, { onConflict: 'date' })
 
     if (error) {
       console.error('Supabase error:', error)
