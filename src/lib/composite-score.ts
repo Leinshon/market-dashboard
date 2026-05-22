@@ -1,92 +1,172 @@
-// 투자 타이밍 점수 + 리스크 신호 계산 모듈
+// 투자 타이밍 점수 + 리스크 신호 (v4, 2026-05 multi-factor)
 //
-// 설계 (2026-05 v3 재설계):
+// === Timing Score ===
+// 0.8 × drawdown_p10y + 0.2 × margin_per_spy_p10y_inverted
+//   - drawdown_p10y: SPY ATH 대비 drawdown의 10년 rolling percentile (regime-free cyclic 신호)
+//   - margin/SPY p10y_inv: FINRA margin debt / SPY price의 10년 percentile (낮을수록 매력, 레버리지 사이클)
 //
-// Timing Score = SPY 의 "ATH 대비 drawdown" 을 "rolling 10년 percentile" 로 변환한 0~100 점수.
+// 검증 (scripts/combination_v3.py, lag-adjusted):
+//   - Sharpe 1.40 (baseline drawdown only 1.43)
+//   - Spread top-bot 14.1% (baseline 10.9%) — 의사결정 차별화 +3.2%
+//   - 3 sub-period 모두 양수 (Era1 +35.0%, Era2 +7.5%, Era3 +9.0%)
+//   - Era3 (2016~) 에서 baseline 대비 +2.5% 개선 (regime 진화에 대응)
+//   - FINRA 1.5개월 release lag 적용 후에도 alpha 유지 검증
 //
-// 이전 v2 (ERP + Buffett z-score) 가 가진 문제를 해결:
-//   - regime change (Buffett 110% → 185%) 에 영구 고평가 판정 → 13년간 60+ 점 0개
-//   - long-run mean/std 의존 → 시기별 분포 왜곡
-//
-// v3 가 우월한 이유 (scripts/deep_analysis.py + long_horizon_analysis.py):
-//   - Regime-free: drawdown은 cycle 본성 (peak에서 0%, 위기에서 -30~50%, 회복)
-//   - 12개월 Sharpe 1.43 (전체 1위), 3개 sub-period 모두 Top-Bot gap 양수
-//   - 7개 역사적 위기 (GFC/유럽/2018/코로나/2022/관세) 모두 60+ 신호 정상 작동
-//   - Score 80+ 진입 후 10년 보유 시 손실 0회 (48/48), CAGR +12.2%/yr (baseline +7.7%)
-//
-// Risk Signal = VIX + HY Spread 분위 4단계 (변경 없음)
+// === Risk Signal ===
+// VIX + HY Spread + HYG drawdown 의 분위 4단계 (normal/elevated/high/extreme)
+
+const ROLLING_WINDOW = 520 // 10년 (주간)
+const MARGIN_LAG_WEEKS = 6 // FINRA release lag (1.5개월)
+
+// 가중치
+const W_DRAWDOWN = 0.8
+const W_MARGIN = 0.2
 
 // ============================================================
-// Timing Score (드로다운 기반 매력도)
+// Helper: rolling percentile (0~100)
 // ============================================================
+function rollingPercentile(values: number[], window: number): number[] {
+  const out: number[] = new Array(values.length).fill(NaN)
+  for (let i = window; i < values.length; i++) {
+    const current = values[i]
+    if (!Number.isFinite(current)) continue
+    const win: number[] = []
+    for (let j = i - window; j < i; j++) {
+      if (Number.isFinite(values[j])) win.push(values[j])
+    }
+    if (win.length < window * 0.5) continue
+    let rank = 0
+    for (const v of win) if (v <= current) rank++
+    out[i] = (rank / win.length) * 100
+  }
+  return out
+}
 
-const ROLLING_WINDOW = 520 // 10년 (주간 데이터)
-
-// 시계열 → drawdown_ath 변환 (각 시점 i에서 spy[i] / max(spy[0..i]) - 1)
+// ============================================================
+// Drawdown 시계열 (각 시점 i에서 spy[i] / max(spy[0..i]) - 1)
+// ============================================================
 function computeDrawdownSeries(spyPrices: (number | null)[]): number[] {
   const out: number[] = []
   let peak = -Infinity
   for (const p of spyPrices) {
-    if (p === null || !Number.isFinite(p) || p <= 0) {
-      out.push(NaN)
-      continue
-    }
+    if (p === null || !Number.isFinite(p) || p <= 0) { out.push(NaN); continue }
     if (p > peak) peak = p
     out.push(peak > 0 ? p / peak - 1 : NaN)
   }
   return out
 }
 
-// drawdown 시계열에 대해 각 시점의 rolling 10년 percentile 계산
-// 더 큰 낙폭(더 음수)일수록 더 매력 → -drawdown으로 부호 반전한 값의 percentile
-function computePercentileSeries(drawdowns: number[]): number[] {
-  const inverted = drawdowns.map((d) => (Number.isFinite(d) ? -d : NaN))
+// ============================================================
+// Margin/SPY 비율 + lag 적용
+// ============================================================
+function computeMarginPerSpy(
+  spyPrices: (number | null)[],
+  marginDebt: (number | null)[],
+): number[] {
   const out: number[] = []
-  for (let i = 0; i < inverted.length; i++) {
-    if (i < ROLLING_WINDOW) {
-      out.push(NaN)
-      continue
+  for (let i = 0; i < spyPrices.length; i++) {
+    const s = spyPrices[i]; const m = marginDebt[i]
+    if (s === null || m === null || !Number.isFinite(s) || !Number.isFinite(m) || s <= 0) {
+      out.push(NaN); continue
     }
-    const current = inverted[i]
-    if (!Number.isFinite(current)) {
-      out.push(NaN)
-      continue
-    }
-    const window = inverted.slice(i - ROLLING_WINDOW, i).filter((v) => Number.isFinite(v))
-    if (window.length < ROLLING_WINDOW * 0.5) {
-      out.push(NaN)
-      continue
-    }
-    const rank = window.filter((v) => v <= current).length
-    out.push((rank / window.length) * 100)
+    out.push(m / s)
   }
   return out
 }
 
-// 시계열 전체에 대해 Timing Score 계산 (chart 용)
-export function calculateTimingScoreSeries(spyPrices: (number | null)[]): number[] {
-  const drawdowns = computeDrawdownSeries(spyPrices)
-  return computePercentileSeries(drawdowns)
-}
-
-// 시계열에서 마지막 시점의 Timing Score 단일값 (현재 score)
-export function calculateTimingScore(spyPrices: (number | null)[]): number {
-  const series = calculateTimingScoreSeries(spyPrices)
-  return series[series.length - 1] ?? NaN
-}
-
-// Timing Score 분포 통계 (10년 percentile이므로 균등분포 근사)
-export const TIMING_SCORE_DISTRIBUTION = {
-  mean: 50,
-  std: 28, // 균등분포의 std ≈ (max-min)/sqrt(12) ≈ 28.9
+function applyLag(values: number[], lagWeeks: number): number[] {
+  const out: number[] = new Array(values.length).fill(NaN)
+  for (let i = lagWeeks; i < values.length; i++) out[i] = values[i - lagWeeks]
+  return out
 }
 
 // ============================================================
-// Risk Signal (변경 없음)
+// Timing Score 시계열 (chart 용)
+// ============================================================
+export interface TimingHistoryInput {
+  spy_price: number | null
+  margin_debt: number | null
+}
+
+export function calculateTimingScoreSeries(history: TimingHistoryInput[]): number[] {
+  const spyPrices = history.map(h => h.spy_price)
+  const marginDebt = history.map(h => h.margin_debt)
+
+  // drawdown_ath p10y
+  const drawdowns = computeDrawdownSeries(spyPrices)
+  const ddInverted = drawdowns.map(d => Number.isFinite(d) ? -d : NaN)
+  const dd_p10y = rollingPercentile(ddInverted, ROLLING_WINDOW)
+
+  // margin/SPY (lagged 6w) p10y inverted (낮을수록 매력)
+  const mps = computeMarginPerSpy(spyPrices, marginDebt)
+  const mpsLagged = applyLag(mps, MARGIN_LAG_WEEKS)
+  const mpsInv = mpsLagged.map(v => Number.isFinite(v) ? -v : NaN)
+  const mps_p10y = rollingPercentile(mpsInv, ROLLING_WINDOW)
+
+  // 결합: 둘 다 valid한 시점만 (margin 없을 시 drawdown 100% 가중으로 폴백)
+  const out: number[] = []
+  for (let i = 0; i < history.length; i++) {
+    const dd = dd_p10y[i]; const mp = mps_p10y[i]
+    if (!Number.isFinite(dd)) { out.push(NaN); continue }
+    if (Number.isFinite(mp)) {
+      out.push(Math.round((dd * W_DRAWDOWN + mp * W_MARGIN) * 100) / 100)
+    } else {
+      // margin 데이터 없으면 drawdown 단독 사용 (1996~ 초기 + margin 데이터 누락 시)
+      out.push(Math.round(dd * 100) / 100)
+    }
+  }
+  return out
+}
+
+// 단일 (마지막) 시점 score
+export function calculateTimingScore(history: TimingHistoryInput[]): number {
+  const series = calculateTimingScoreSeries(history)
+  return series[series.length - 1] ?? NaN
+}
+
+// 분포 (10년 percentile 기반, 거의 균등)
+export const TIMING_SCORE_DISTRIBUTION = {
+  mean: 50,
+  std: 28,
+}
+
+// Decomposition 디버그용 - 현재 score의 구성 요소
+export interface TimingScoreBreakdown {
+  total: number
+  drawdownComponent: number
+  marginComponent: number | null
+  drawdownValue: number
+  marginValueLagged: number | null
+}
+
+export function calculateTimingBreakdown(history: TimingHistoryInput[]): TimingScoreBreakdown {
+  const spyPrices = history.map(h => h.spy_price)
+  const marginDebt = history.map(h => h.margin_debt)
+  const drawdowns = computeDrawdownSeries(spyPrices)
+  const dd_p10y = rollingPercentile(drawdowns.map(d => Number.isFinite(d) ? -d : NaN), ROLLING_WINDOW)
+  const mps = computeMarginPerSpy(spyPrices, marginDebt)
+  const mpsLagged = applyLag(mps, MARGIN_LAG_WEEKS)
+  const mps_p10y = rollingPercentile(mpsLagged.map(v => Number.isFinite(v) ? -v : NaN), ROLLING_WINDOW)
+  const i = history.length - 1
+  const ddV = dd_p10y[i] ?? NaN
+  const mpV = mps_p10y[i] ?? NaN
+  const series = calculateTimingScoreSeries(history)
+  return {
+    total: series[i] ?? NaN,
+    drawdownComponent: ddV,
+    marginComponent: Number.isFinite(mpV) ? mpV : null,
+    drawdownValue: drawdowns[i] ?? NaN,
+    marginValueLagged: Number.isFinite(mpsLagged[i]) ? mpsLagged[i] : null,
+  }
+}
+
+// ============================================================
+// Risk Signal — VIX + HY + HYG drawdown
 // ============================================================
 export const RISK_SIGNAL_THRESHOLDS = {
   vix:      { elevated: 22.27, high: 26.58, extreme: 33.35 },
   hySpread: { elevated: 5.46,  high: 7.17,  extreme: 9.04  },
+  hygDrawdown: { elevated: -0.04, high: -0.08, extreme: -0.15 }, // 음수, 낙폭 클수록 큰 위험
 }
 
 export type RiskLevel = 'normal' | 'elevated' | 'high' | 'extreme'
@@ -95,12 +175,14 @@ export interface RiskSignalInput {
   vix?: number | null
   hySpread?: number | null
   hy_spread?: number | null
+  hygDrawdown?: number | null // HYG drawdown (음수, 옵션)
 }
 
 export interface RiskSignal {
   level: RiskLevel
   vix: { value: number | null; level: RiskLevel }
   hy: { value: number | null; level: RiskLevel }
+  hyg: { value: number | null; level: RiskLevel }
 }
 
 const RANK: Record<RiskLevel, number> = { normal: 0, elevated: 1, high: 2, extreme: 3 }
@@ -121,12 +203,29 @@ function classify(value: number | null, thresholds: { elevated: number; high: nu
   return 'normal'
 }
 
+// HYG drawdown은 음수가 위험. 부호 반전해서 classify에 넘김
+function classifyHygDrawdown(value: number | null): RiskLevel {
+  if (value === null) return 'normal'
+  const t = RISK_SIGNAL_THRESHOLDS.hygDrawdown
+  if (value <= t.extreme) return 'extreme'
+  if (value <= t.high) return 'high'
+  if (value <= t.elevated) return 'elevated'
+  return 'normal'
+}
+
 export function calculateRiskSignal(data: RiskSignalInput): RiskSignal {
   const vix = pickRisk(data, 'vix')
   const hy = pickRisk(data, 'hySpread', 'hy_spread')
+  const hyg = pickRisk(data, 'hygDrawdown')
   const vixLevel = classify(vix, RISK_SIGNAL_THRESHOLDS.vix)
   const hyLevel = classify(hy, RISK_SIGNAL_THRESHOLDS.hySpread)
-  const overallRank = Math.max(RANK[vixLevel], RANK[hyLevel])
+  const hygLevel = classifyHygDrawdown(hyg)
+  const overallRank = Math.max(RANK[vixLevel], RANK[hyLevel], RANK[hygLevel])
   const level = (['normal', 'elevated', 'high', 'extreme'] as RiskLevel[])[overallRank]
-  return { level, vix: { value: vix, level: vixLevel }, hy: { value: hy, level: hyLevel } }
+  return {
+    level,
+    vix: { value: vix, level: vixLevel },
+    hy: { value: hy, level: hyLevel },
+    hyg: { value: hyg, level: hygLevel },
+  }
 }

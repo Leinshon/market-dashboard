@@ -166,6 +166,51 @@ async function fetchSP500EarningsYield(): Promise<number | null> {
   }
 }
 
+// FINRA monthly margin debt scraper.
+// XLSX 다운로드 후 첫 행(최신월)의 "Debit Balances in Customers' Securities Margin Accounts" 반환.
+// XLSX는 binary라 server-side parsing 어려움 → 단순 우회: 직전 record 의 margin_debt를 fallback로 사용 (월 1회만 갱신 충분)
+// 실제 backfill 은 scripts/backfill_v3.mjs 가 수행
+async function fetchLatestMarginDebt(): Promise<number | null> {
+  try {
+    const url = 'https://www.finra.org/sites/default/files/2021-03/margin-statistics.xlsx'
+    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } })
+    if (!r.ok) return null
+    const buf = await r.arrayBuffer()
+    // XLSX 첫 sheet 첫 데이터 row 의 두 번째 cell 읽기. zip + XML 파싱 필요해서 raw search로 대체.
+    // openpyxl 없이 binary 안에 텍스트 형태로 숫자가 있는지 단순 매칭 (best-effort, 실패 시 null)
+    const text = new TextDecoder('utf-8', { fatal: false }).decode(buf)
+    // sharedStrings.xml 또는 sheet1.xml 안에 첫 row 데이터 있음. 첫 큰 정수 (margin debt > 100000)
+    const matches = text.match(/<v>(\d{7,9})<\/v>/g)
+    if (!matches || matches.length === 0) return null
+    const first = matches[0].match(/(\d+)/)?.[1]
+    return first ? parseInt(first) : null
+  } catch {
+    return null
+  }
+}
+
+// AAII weekly sentiment scraper - 매주 목요일 발표
+// JSON API 가 없고 page는 JS-rendered. 가장 안정적: weekly XLS 다시 fetch (이미 backfill에 사용)
+async function fetchLatestAAII(): Promise<{ bullish: number; bearish: number; neutral: number; spread: number } | null> {
+  try {
+    const r = await fetch('https://www.aaii.com/files/surveys/sentiment.xls', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Referer': 'https://www.aaii.com/sentimentsurvey',
+      },
+    })
+    if (!r.ok) return null
+    const buf = await r.arrayBuffer()
+    // .xls (old format) binary 안에서 마지막 weekly row를 추출하기 어려움.
+    // best-effort: 실패 시 previousRecord fallback에 의존 (weekly 데이터는 7일 stale tolerance)
+    // production grade는 별도 parser 필요. 일단 null 반환.
+    void buf
+    return null
+  } catch {
+    return null
+  }
+}
+
 // Per-frequency stale thresholds.
 // previousRecord acts as fallback when a source API fails, but only within these windows.
 // Beyond the window the value is treated as too old to trust and we emit null instead.
@@ -192,6 +237,12 @@ const FIELD_FREQUENCY: Record<string, keyof typeof STALE_THRESHOLDS> = {
   unemployment_rate: 'monthly',
   labor_participation: 'monthly',
   erp: 'daily',
+  margin_debt: 'monthly',
+  aaii_bullish: 'weekly',
+  aaii_bearish: 'weekly',
+  aaii_neutral: 'weekly',
+  aaii_spread: 'weekly',
+  spy_volume: 'daily',
 }
 
 // Sanity bounds per field. Values outside these ranges are nulled before save and logged.
@@ -243,6 +294,13 @@ const FIELD_BOUNDS: Record<string, [number, number]> = {
   copper_price: [0.5, 15],
   gold_futures_price: [200, 10_000],
   copper_gold_ratio: [0.00005, 0.01],
+  // v4 multi-factor
+  margin_debt: [50_000, 5_000_000],  // FINRA monthly, 단위: 백만$
+  aaii_bullish: [0, 1],              // 0~1 비율
+  aaii_bearish: [0, 1],
+  aaii_neutral: [0, 1],
+  aaii_spread: [-1, 1],              // bullish - bearish
+  spy_volume: [1_000_000, 10_000_000_000],
 }
 
 function validateRecord<T extends Record<string, unknown>>(record: T): T {
@@ -734,10 +792,56 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       copperGoldRatio = Math.round((copperPrice / goldFuturesPrice) * 1_000_000) / 1_000_000
     }
 
-    // Calculate timing score (drawdown_ath 10y percentile)
-    // 직전 ~10년 SPY history + 오늘 가격으로 percentile 계산
-    const spySeries = [...priorSpyPrices, spyPrice]
-    const compositeScore = calculateTimingScore(spySeries)
+    // SPY daily volume (Yahoo 응답에 포함됨)
+    let spyVolume: number | null = null
+    if (spyData?.chart?.result?.[0]) {
+      const r = spyData.chart.result[0]
+      const ts = r.timestamp ?? []
+      const vols = r.indicators?.quote?.[0]?.volume ?? []
+      if (vols.length > 0) {
+        const lastVol = vols[vols.length - 1]
+        if (typeof lastVol === 'number' && Number.isFinite(lastVol)) spyVolume = lastVol
+      }
+      void ts
+    }
+
+    // FINRA margin debt — monthly 발표라 매일 fetch 시도하되 실패 시 직전 값 fallback
+    let marginDebt: number | null = await fetchLatestMarginDebt()
+    if (marginDebt === null) {
+      marginDebt = getStaleSafeFallback(previousRecord, 'margin_debt', today)
+    }
+
+    // AAII weekly sentiment — 매주 발표라 매일 fetch 시도하되 실패 시 직전 값 fallback
+    let aaiiBullish: number | null = null
+    let aaiiBearish: number | null = null
+    let aaiiNeutral: number | null = null
+    let aaiiSpread: number | null = null
+    const aaii = await fetchLatestAAII()
+    if (aaii) {
+      aaiiBullish = aaii.bullish
+      aaiiBearish = aaii.bearish
+      aaiiNeutral = aaii.neutral
+      aaiiSpread = aaii.spread
+    } else {
+      aaiiBullish = getStaleSafeFallback(previousRecord, 'aaii_bullish', today)
+      aaiiBearish = getStaleSafeFallback(previousRecord, 'aaii_bearish', today)
+      aaiiNeutral = getStaleSafeFallback(previousRecord, 'aaii_neutral', today)
+      aaiiSpread = getStaleSafeFallback(previousRecord, 'aaii_spread', today)
+    }
+
+    // Calculate timing score (v4: drawdown_ath p10y + margin/SPY lagged p10y)
+    // 직전 ~10년 SPY + margin_debt history 가 필요
+    const { data: priorFullRecords } = await supabase
+      .from('market_indicators_history')
+      .select('date, spy_price, margin_debt')
+      .order('date', { ascending: true })
+      .limit(600)
+    const histInput = (priorFullRecords ?? []).map(r => ({
+      spy_price: r.spy_price,
+      margin_debt: r.margin_debt,
+    }))
+    histInput.push({ spy_price: spyPrice, margin_debt: marginDebt })
+    const compositeScore = calculateTimingScore(histInput)
 
     // Save to Supabase
     const record = {
@@ -788,6 +892,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       copper_price: copperPrice,
       gold_futures_price: goldFuturesPrice,
       copper_gold_ratio: copperGoldRatio,
+      // v4 multi-factor 추가 컬럼
+      margin_debt: marginDebt,
+      aaii_bullish: aaiiBullish,
+      aaii_bearish: aaiiBearish,
+      aaii_neutral: aaiiNeutral,
+      aaii_spread: aaiiSpread,
+      spy_volume: spyVolume,
       raw_data: {
         fearGreed: fearGreedValue,
         vix,

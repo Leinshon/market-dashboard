@@ -34,7 +34,7 @@ let all = []
 while (true) {
   const { data, error } = await supabase
     .from('market_indicators_history')
-    .select('date, spy_price, fear_greed, vix, spy_vs_200ma, buffett_indicator, fed_balance_sheet_yoy, m2_growth_yoy, hy_spread, yield_curve_10y2y, yield_curve_10y3m, initial_claims, erp')
+    .select('*')
     .order('date', { ascending: true })
     .range(offset, offset + PAGE - 1)
 

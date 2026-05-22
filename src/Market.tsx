@@ -68,6 +68,15 @@ interface MarketHistoryRecord {
   treasury_10y: number | null
   treasury_2y: number | null
   dollar_index: number | null
+  // v4 multi-factor
+  margin_debt: number | null
+  aaii_bullish: number | null
+  aaii_bearish: number | null
+  aaii_spread: number | null
+  spy_volume: number | null
+  hyg_price?: number | null
+  lqd_price?: number | null
+  vix_9d?: number | null
 }
 
 // 시장 지표 타입
@@ -394,15 +403,35 @@ const calculateIndicatorScores = (
 }
 
 // History 전체에서 Timing Score 시계열 계산. 시간순(오름차순) 입력 가정.
+// v4: drawdown_ath p10y + margin/SPY lagged p10y 결합
 const calculateScoresFromHistory = (history: MarketHistoryRecord[]): number[] => {
-  const prices = history.map(h => h.spy_price)
-  return calculateTimingScoreSeries(prices)
+  return calculateTimingScoreSeries(
+    history.map(h => ({ spy_price: h.spy_price, margin_debt: h.margin_debt }))
+  )
 }
 
-const calculateRiskFromIndicators = (data: MarketIndicators): RiskSignal => {
+// HYG drawdown: 직전 52주 고점 대비 현재가
+const calculateHygDrawdown = (history: MarketHistoryRecord[], selectedIdx: number): number | null => {
+  const start = Math.max(0, selectedIdx - 52)
+  const prices = history.slice(start, selectedIdx + 1).map(h => h.hyg_price).filter((p): p is number => p !== null && p !== undefined && Number.isFinite(p))
+  if (prices.length < 13) return null
+  const peak = Math.max(...prices)
+  const current = prices[prices.length - 1]
+  if (peak <= 0 || !Number.isFinite(current)) return null
+  return current / peak - 1
+}
+
+const calculateRiskFromIndicators = (
+  data: MarketIndicators,
+  history: MarketHistoryRecord[] = [],
+  selectedIdx: number = -1,
+): RiskSignal => {
+  const idx = selectedIdx >= 0 ? selectedIdx : history.length - 1
+  const hygDd = history.length > 0 && idx >= 0 ? calculateHygDrawdown(history, idx) : null
   return calculateRiskSignal({
     vix: data.vix,
     hySpread: data.highYieldSpread,
+    hygDrawdown: hygDd,
   })
 }
 
@@ -1600,9 +1629,77 @@ ${globalSummary}
                 </div>
               </div>
 
+              {/* 점수 구성요소 카드 (drawdown + margin/SPY) */}
+              {(() => {
+                const histIdx = selectedDateIndex ?? marketHistory.length - 1
+                if (histIdx < 0 || histIdx >= marketHistory.length) return null
+                const histToHere = marketHistory.slice(0, histIdx + 1)
+                if (histToHere.length === 0) return null
+                const prices = histToHere.map(h => h.spy_price).filter((p): p is number => p !== null)
+                if (prices.length === 0) return null
+                const currentSpy = prices[prices.length - 1]
+                const ath = Math.max(...prices)
+                const dd = ath > 0 ? (currentSpy / ath - 1) * 100 : 0
+
+                // 52w high
+                const last52 = prices.slice(-52)
+                const high52 = Math.max(...last52)
+                const dd52 = high52 > 0 ? (currentSpy / high52 - 1) * 100 : 0
+
+                // Margin/SPY ratio + percentile
+                const currentRec = marketHistory[histIdx]
+                const margin = currentRec.margin_debt
+                const marginPerSpy = margin && currentSpy > 0 ? margin / currentSpy : null
+                const ddP10y = scoreValid ? Math.round(avgScore * 0.8 * 100) / 100 : null
+                void ddP10y
+
+                return (
+                  <div className="market-phase-card" style={{ borderColor: '#cbd5e1', marginTop: '16px' }}>
+                    <div className="market-phase-header">
+                      <div className="market-phase-badge" style={{ backgroundColor: '#64748b' }}>
+                        점수 구성요소
+                      </div>
+                      <div className="market-phase-score">
+                        <span className="market-score-label">S&P500</span>
+                        <span className="market-score-value" style={{ fontSize: '18px' }}>
+                          ${currentSpy.toFixed(0)}
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '12px' }}>
+                      <div>
+                        <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>현재가 / 전 기간 ATH</div>
+                        <div style={{ fontSize: '16px', fontWeight: 600, color: dd <= -10 ? '#16a34a' : dd <= -5 ? '#f59e0b' : '#475569' }}>
+                          {dd.toFixed(1)}%
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#94a3b8' }}>(80% 가중치)</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>52주 고점 대비</div>
+                        <div style={{ fontSize: '16px', fontWeight: 600 }}>{dd52.toFixed(1)}%</div>
+                        <div style={{ fontSize: '11px', color: '#94a3b8' }}>(참고)</div>
+                      </div>
+                      {marginPerSpy !== null && (
+                        <div style={{ gridColumn: '1 / -1' }}>
+                          <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>
+                            FINRA Margin Debt / SPY price (레버리지 사이클)
+                          </div>
+                          <div style={{ fontSize: '16px', fontWeight: 600 }}>
+                            {marginPerSpy.toFixed(0)}
+                            <span style={{ fontSize: '11px', color: '#94a3b8', marginLeft: '6px' }}>
+                              ($M / share) — 1.5개월 lag 적용, 20% 가중치
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })()}
+
               {/* 리스크 신호 (VIX + HY Spread) */}
               {(() => {
-                const risk = calculateRiskFromIndicators(selectedMarketData)
+                const risk = calculateRiskFromIndicators(selectedMarketData, marketHistory, selectedDateIndex ?? marketHistory.length - 1)
                 const levelMeta: Record<typeof risk.level, { label: string; color: string; desc: string }> = {
                   normal:   { label: '정상',     color: '#22c55e', desc: '변동성·신용 스트레스 정상 범위.' },
                   elevated: { label: '주의',     color: '#f59e0b', desc: '평소보다 변동성/신용 스트레스 상승. 분할 매수 권장.' },
@@ -1628,6 +1725,14 @@ ${globalSummary}
                       <span className="market-percentile-item">VIX: {risk.vix.level}</span>
                       <span className="market-percentile-divider">|</span>
                       <span className="market-percentile-item">HY Spread: {risk.hy.level}</span>
+                      {risk.hyg.value !== null && (
+                        <>
+                          <span className="market-percentile-divider">|</span>
+                          <span className="market-percentile-item">
+                            HYG dd ({(risk.hyg.value * 100).toFixed(1)}%): {risk.hyg.level}
+                          </span>
+                        </>
+                      )}
                     </div>
                     <p style={{ marginTop: '12px', fontSize: '13px', color: '#475569', lineHeight: 1.5 }}>
                       {meta.desc} 타이밍 점수와 함께 보세요 — 점수가 높아도 리스크 극단이면 진입을 분할하는 게 안전합니다.
