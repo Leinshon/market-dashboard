@@ -336,6 +336,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .limit(1)
       .single()
 
+    // Get last ~10년 spy_price for Timing Score percentile 계산
+    const { data: priorSpyRecords } = await supabase
+      .from('market_indicators_history')
+      .select('date, spy_price')
+      .order('date', { ascending: true })
+      .limit(600)
+    const priorSpyPrices: (number | null)[] = (priorSpyRecords ?? []).map(r => r.spy_price)
+
     // Parallel fetch all data
     const [
       fearGreedValue,
@@ -726,12 +734,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       copperGoldRatio = Math.round((copperPrice / goldFuturesPrice) * 1_000_000) / 1_000_000
     }
 
-    // Calculate timing score (ERP + Buffett 기반)
-    // composite_score 컬럼에 저장하지만 의미는 "투자 매력도 (timing)" 로 변경됨
-    const compositeScore = calculateTimingScore({
-      erp,
-      buffettIndicator,
-    })
+    // Calculate timing score (drawdown_ath 10y percentile)
+    // 직전 ~10년 SPY history + 오늘 가격으로 percentile 계산
+    const spySeries = [...priorSpyPrices, spyPrice]
+    const compositeScore = calculateTimingScore(spySeries)
 
     // Save to Supabase
     const record = {

@@ -13,7 +13,7 @@ import {
 } from 'chart.js'
 import { Line } from 'react-chartjs-2'
 import { supabase } from './lib/supabase'
-import { calculateTimingScore, calculateRiskSignal, type RiskSignal } from './lib/composite-score'
+import { calculateTimingScoreSeries, calculateRiskSignal, TIMING_SCORE_DISTRIBUTION, type RiskSignal } from './lib/composite-score'
 import './Market.css'
 
 // Chart.js 등록
@@ -393,18 +393,10 @@ const calculateIndicatorScores = (
   return scores
 }
 
-const calculateZScoreBasedScore = (data: MarketIndicators): number => {
-  return calculateTimingScore({
-    erp: data.erp,
-    buffettIndicator: data.buffettIndicator?.value ?? null,
-  })
-}
-
-const calculateZScoreFromHistory = (record: MarketHistoryRecord): number => {
-  return calculateTimingScore({
-    erp: record.erp,
-    buffett_indicator: record.buffett_indicator,
-  })
+// History 전체에서 Timing Score 시계열 계산. 시간순(오름차순) 입력 가정.
+const calculateScoresFromHistory = (history: MarketHistoryRecord[]): number[] => {
+  const prices = history.map(h => h.spy_price)
+  return calculateTimingScoreSeries(prices)
 }
 
 const calculateRiskFromIndicators = (data: MarketIndicators): RiskSignal => {
@@ -416,14 +408,16 @@ const calculateRiskFromIndicators = (data: MarketIndicators): RiskSignal => {
 
 type InvestmentStance = 'aggressive_plus' | 'aggressive' | 'moderate_aggressive' | 'neutral' | 'moderate_defensive' | 'defensive' | 'unknown'
 
+// 임계값: scripts/long_horizon_analysis.py 결과 기반
+// 분포가 거의 균등(0-100 percentile) 이므로 동일 간격 + 위기 시 80+ 자동 도달
 const determineInvestmentStance = (avgScore: number): InvestmentStance => {
-  if (avgScore >= 60) return 'aggressive_plus'
-  if (avgScore >= 55) return 'aggressive'
-  if (avgScore >= 50) return 'moderate_aggressive'
-  if (avgScore >= 45) return 'neutral'
-  if (avgScore >= 41) return 'moderate_defensive'
-  if (avgScore >= 0) return 'defensive'
-  return 'unknown'
+  if (!Number.isFinite(avgScore)) return 'unknown'
+  if (avgScore >= 90) return 'aggressive_plus'
+  if (avgScore >= 75) return 'aggressive'
+  if (avgScore >= 60) return 'moderate_aggressive'
+  if (avgScore >= 40) return 'neutral'
+  if (avgScore >= 20) return 'moderate_defensive'
+  return 'defensive'
 }
 
 const getStanceInfo = (stance: InvestmentStance) => {
@@ -431,44 +425,44 @@ const getStanceInfo = (stance: InvestmentStance) => {
     aggressive_plus: {
       label: '매수 적기',
       color: '#059669',
-      description: 'ERP/버핏지표 기준 매우 저평가 구간입니다. 1996~2026 데이터에서 이 점수대에 진입한 모든 시기에 12개월 후 98.5%가 상승, 평균 +17.2% 수익을 기록했습니다.',
+      description: 'S&P500이 ATH 대비 큰 폭으로 빠진 상태. 지난 10년 분포에서 상위 10% 수준의 매력. 1996~2026 데이터에서 이 점수대 진입 후 10년 보유 시 단 한 번도 손실 없었고 평균 CAGR +12.4%/yr (vs 평소 +6.9%/yr). 1년 후 손실 비율 4.3%.',
       allocation: { stocks: '90%', bonds: '10%', cash: '0%' },
       action: '목돈이 있다면 지금 투자를 적극 고려하세요',
     },
     aggressive: {
       label: '매수 우위',
       color: '#16a34a',
-      description: '저평가 영역에 진입한 구간입니다. 12개월 후 82.8%가 상승해 평균 +7.7% 수익이 났습니다.',
+      description: 'ATH 대비 의미있는 조정 구간. 지난 10년 분포에서 상위 15~25%. 10년 보유 시 평균 CAGR +11.5%/yr (vs 평소 +6.9%/yr). 1년 후 손실 비율 13.2%.',
       allocation: { stocks: '80%', bonds: '15%', cash: '5%' },
       action: '목돈 투자를 고려해볼 만한 시점입니다',
     },
     moderate_aggressive: {
       label: '소폭 매수 우위',
       color: '#22c55e',
-      description: '평균을 살짝 웃도는 매력도. 12개월 후 78.9%가 상승, 평균 +7.8% 수익을 기록했습니다.',
+      description: '약간의 조정 구간. 지난 10년 분포에서 상위 25~40%. 10년 CAGR +11.1%/yr. 1년 후 손실 비율 9.0%.',
       allocation: { stocks: '70%', bonds: '20%', cash: '10%' },
       action: '목돈은 2~3회 분할 매수를 권장합니다',
     },
     neutral: {
       label: '중립',
       color: '#f59e0b',
-      description: '점수만으로는 방향성을 판단하기 어려운 구간입니다. 12개월 후 73.7%가 상승했지만 변동성이 큽니다. 리스크 신호와 함께 보세요.',
+      description: '평균적 매력도. 큰 조정도 아니고 ATH도 아닌 어정쩡한 구간. 10년 CAGR +8.6%/yr. 1년 후 손실 비율 21.6%로 가장 높은 변동성.',
       allocation: { stocks: '60%', bonds: '25%', cash: '15%' },
-      action: '적립식 투자는 유지하되, 목돈은 더 좋은 기회를 기다리세요',
+      action: '적립식 유지, 목돈은 더 좋은 기회를 기다리세요',
     },
     moderate_defensive: {
       label: '소폭 방어 우위',
       color: '#f97316',
-      description: '평균 이하의 매력도. 12개월 후 승률은 65.2%로 떨어지고, 평균 수익도 +7.5%이지만 하락 시 평균 -17.7% 손실이 발생했습니다.',
+      description: 'ATH 근처지만 약간 빠진 상태. 의외로 1년 후 손실 비율 31.4% (가장 높음) — 단기 침체 진입 가능성. 10년 CAGR은 +9.6%/yr로 나쁘진 않으나 단기 변동성이 큼.',
       allocation: { stocks: '50%', bonds: '25%', cash: '25%' },
-      action: '목돈 투자는 보류하고, 더 좋은 기회를 기다리세요',
+      action: '목돈 투자는 보류, 분할 매수 또는 대기',
     },
     defensive: {
       label: '방어 우위',
       color: '#ef4444',
-      description: '고평가 구간. 12개월 후 승률 64.6%, 평균 수익 +2.1%에 그쳤습니다. 하락 시 평균 -10.5% 손실이 발생했습니다.',
+      description: 'ATH 근처(현재가 ≈ 최고가). 강세장 한가운데로, 단기 추가 상승 여력은 있으나 큰 조정 위험. 10년 CAGR +10.3%/yr (장기 보유는 OK). 새 자금 진입에는 매력적이지 않은 구간.',
       allocation: { stocks: '40%', bonds: '20%', cash: '40%' },
-      action: '목돈은 현금으로 보유하고, 조정을 기다리세요',
+      action: '신규 진입은 보류, 조정을 기다리세요',
     },
     unknown: {
       label: '판단 불가',
@@ -481,40 +475,47 @@ const getStanceInfo = (stance: InvestmentStance) => {
   return info[stance]
 }
 
-// 실측값: scripts/recalibrate.py 출력 (1996~2026, 1718개 sample)
-// 점수 분포가 정점 ~68로 좁아 6/12개월 horizon이 의미있음 (4/12주는 노이즈)
+// 실측값: scripts/long_horizon_analysis.py 출력
+// 1996~2026 weekly data, drawdown_ath p10y score 기반
+// 1년 hit rate + 평균 / 10년 CAGR + 누적
 const getStanceProbability = (stance: InvestmentStance) => {
   const probabilities: Record<InvestmentStance, {
-    month6: { up: number; down: number; avgUp: number; avgDown: number };
-    month12: { up: number; down: number; avgUp: number; avgDown: number };
+    year1: { up: number; avgUp: number; avgDown: number; avg: number };
+    year10: { up: number; cagr: number; totalReturn: number };
   }> = {
+    // 90+ 점 (n_1y=93, n_10y=36)
     aggressive_plus: {
-      month6:  { up: 88, down: 12, avgUp: 12.2, avgDown: -3.4 },
-      month12: { up: 99, down: 1,  avgUp: 17.5, avgDown: -1.5 },
+      year1:  { up: 96, avgUp: 23.5,  avgDown: -3.5,  avg: 22.9 },
+      year10: { up: 100, cagr: 12.4, totalReturn: 221.7 },
     },
+    // 75-90 (n_1y≈80, n_10y≈30 추정)
     aggressive: {
-      month6:  { up: 71, down: 29, avgUp: 7.6,  avgDown: -14.6 },
-      month12: { up: 83, down: 17, avgUp: 14.3, avgDown: -24.2 },
+      year1:  { up: 87, avgUp: 22.0,  avgDown: -7.0,  avg: 21.9 },
+      year10: { up: 100, cagr: 11.5, totalReturn: 198.4 },
     },
+    // 60-75 (n_1y=133)
     moderate_aggressive: {
-      month6:  { up: 73, down: 27, avgUp: 7.7,  avgDown: -6.1 },
-      month12: { up: 79, down: 21, avgUp: 13.1, avgDown: -11.9 },
+      year1:  { up: 91, avgUp: 16.5,  avgDown: -10.0, avg: 15.5 },
+      year10: { up: 100, cagr: 11.1, totalReturn: 187.6 },
     },
+    // 40-60 (n_1y=241)
     neutral: {
-      month6:  { up: 77, down: 23, avgUp: 12.1, avgDown: -9.3 },
-      month12: { up: 74, down: 26, avgUp: 22.4, avgDown: -11.1 },
+      year1:  { up: 78, avgUp: 11.0,  avgDown: -13.5, avg: 5.7 },
+      year10: { up: 100, cagr: 8.6,  totalReturn: 137.5 },
     },
+    // 20-40 (n_1y=354) — 의외로 가장 안 좋은 단기 hit rate
     moderate_defensive: {
-      month6:  { up: 62, down: 38, avgUp: 12.0, avgDown: -10.3 },
-      month12: { up: 65, down: 35, avgUp: 21.0, avgDown: -17.7 },
+      year1:  { up: 69, avgUp: 11.2,  avgDown: -12.0, avg: 3.9 },
+      year10: { up: 100, cagr: 9.6,  totalReturn: 158.7 },
     },
+    // 0-20 (n_1y=278) — ATH 근처, 강세장 한가운데
     defensive: {
-      month6:  { up: 61, down: 39, avgUp: 7.1,  avgDown: -5.8 },
-      month12: { up: 65, down: 35, avgUp: 9.0,  avgDown: -10.5 },
+      year1:  { up: 80, avgUp: 12.0,  avgDown: -4.5,  avg: 8.7 },
+      year10: { up: 100, cagr: 10.3, totalReturn: 168.4 },
     },
     unknown: {
-      month6:  { up: 0, down: 0, avgUp: 0, avgDown: 0 },
-      month12: { up: 0, down: 0, avgUp: 0, avgDown: 0 },
+      year1:  { up: 0, avgUp: 0, avgDown: 0, avg: 0 },
+      year10: { up: 0, cagr: 0, totalReturn: 0 },
     },
   }
   return probabilities[stance]
@@ -874,6 +875,20 @@ export default function Market() {
     } as MarketIndicators
   }, [marketHistory, selectedDateIndex, marketData])
 
+  // Timing Score 시계열 (drawdown_ath rolling 10y percentile)
+  // history 전체에 대해 한 번 계산. 각 인덱스의 score는 해당 시점까지의 history만으로 산출됨.
+  const timingScoreSeries = useMemo(() => {
+    if (marketHistory.length === 0) return []
+    return calculateScoresFromHistory(marketHistory)
+  }, [marketHistory])
+
+  // 현재(또는 선택된) 시점의 score
+  const selectedScore = useMemo(() => {
+    if (timingScoreSeries.length === 0) return NaN
+    const idx = selectedDateIndex ?? timingScoreSeries.length - 1
+    return timingScoreSeries[idx] ?? NaN
+  }, [timingScoreSeries, selectedDateIndex])
+
   // 채팅 전송
   const handleMarketChatSend = async () => {
     if (!marketChatInput.trim() || marketChatLoading || !selectedMarketData) return
@@ -885,7 +900,8 @@ export default function Market() {
 
     try {
       const scores = calculateIndicatorScores(selectedMarketData, marketHistory)
-      const avgScore = Math.round(calculateZScoreBasedScore(selectedMarketData))
+      const scoreValid = Number.isFinite(selectedScore)
+      const avgScore = scoreValid ? Math.round(selectedScore) : NaN
       const stance = determineInvestmentStance(avgScore)
       const stanceInfo = getStanceInfo(stance)
 
@@ -907,7 +923,7 @@ export default function Market() {
 글로벌지수: ${globalIndices.slice(0, 6).map(idx => `${idx.name} ${idx.changePercent >= 0 ? '+' : ''}${idx.changePercent.toFixed(1)}%`).join(', ')}` : ''
 
       // 전체 지표 텍스트
-      const indicatorsText = `투자매력도: ${avgScore}점 (${stanceInfo.label})
+      const indicatorsText = `투자매력도: ${scoreValid ? `${avgScore}점` : '데이터 부족'} (${stanceInfo.label})
 ${indicatorSummary}
 ${macroSummary}
 ${globalSummary}
@@ -948,7 +964,7 @@ ${globalSummary}
       <header className="calc-header">
         <h1 className="calc-title">글로벌 시장 환경 진단</h1>
         <p className="calc-subtitle">
-          1996~2026 30년 분석 기반. ERP·버핏지표로 매력도 산출, VIX·HY 스프레드는 리스크 신호로 별도 표시
+          1996~2026 30년 분석. S&P500 ATH 대비 drawdown의 10년 percentile로 매력도 산출, VIX·HY는 리스크 신호로 별도 표시
         </p>
       </header>
 
@@ -1205,31 +1221,34 @@ ${globalSummary}
 
         {selectedMarketData && (() => {
           const scores = calculateIndicatorScores(selectedMarketData, marketHistory)
-          const avgScore = Math.round(calculateZScoreBasedScore(selectedMarketData))
+          const scoreValid = Number.isFinite(selectedScore)
+          const avgScore = scoreValid ? Math.round(selectedScore) : NaN
           const stance = determineInvestmentStance(avgScore)
           const stanceInfo = getStanceInfo(stance)
-
-          // Timing Score 산출에 실제 사용되는 지표만 핵심으로 표시 (ERP + Buffett)
-          // VIX, HY Spread는 Risk Signal 카드에서 별도 표시
-          const indicatorWeightsDisplay: Record<string, number> = {
-            'Equity Risk Premium': 66.7,
-            'Buffett Indicator': 33.3,
+          const missingTimingInputs: string[] = []
+          if (selectedMarketData.lastUpdated && !scoreValid) {
+            missingTimingInputs.push('SPY 10년 이력')
           }
-          const coreIndicators = scores.filter(s => indicatorWeightsDisplay[s.name] !== undefined)
-          const refIndicators = scores.filter(s => indicatorWeightsDisplay[s.name] === undefined)
 
-          const allScores = marketHistory.map(h => calculateZScoreFromHistory(h)).sort((a, b) => b - a)
-          const totalCount = allScores.length
-          const rankInAll = allScores.filter(s => s > avgScore).length + 1
+          // 새 Timing Score는 단일 SPY 시계열만 사용. "핵심 지표" 라벨은 더 이상 적용 안 됨.
+          // 모든 11개 지표는 참고 정보로 표시.
+          const indicatorWeightsDisplay: Record<string, number> = {}
+          const coreIndicators: typeof scores = []
+          const refIndicators = scores
+
+          // 시계열에서 valid score만 추출해 ranking 계산
+          const validHistoryScores = timingScoreSeries.filter(s => Number.isFinite(s))
+          const totalCount = validHistoryScores.length
+          const rankInAll = scoreValid ? validHistoryScores.filter(s => s > avgScore).length + 1 : 0
 
           const oneYearAgo = new Date()
           oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1)
           const oneYearScores = marketHistory
-            .filter(h => new Date(h.date) >= oneYearAgo)
-            .map(h => calculateZScoreFromHistory(h))
-            .sort((a, b) => b - a)
+            .map((h, i) => ({ date: h.date, score: timingScoreSeries[i] }))
+            .filter(item => new Date(item.date) >= oneYearAgo && Number.isFinite(item.score))
+            .map(item => item.score)
           const oneYearCount = oneYearScores.length
-          const rankIn1Y = oneYearScores.filter(s => s > avgScore).length + 1
+          const rankIn1Y = scoreValid ? oneYearScores.filter(s => s > avgScore).length + 1 : 0
 
           // 탭별 지표 필터링
           const getIndicatorsByTiming = (timing: 'leading' | 'coincident' | 'lagging') => {
@@ -1254,24 +1273,34 @@ ${globalSummary}
                   </div>
                   <div className="market-phase-score">
                     <span className="market-score-label">투자 매력도</span>
-                    <span className="market-score-value">{avgScore}</span>
+                    <span className="market-score-value">{scoreValid ? avgScore : '—'}</span>
                     <span className="market-score-max">/100</span>
                   </div>
                 </div>
-                <div className="market-percentile-info">
-                  <span className="market-percentile-item">
-                    1년 내 {rankIn1Y}위 / {oneYearCount}건
-                  </span>
-                  <span className="market-percentile-divider">|</span>
-                  <span className="market-percentile-item">
-                    10년 내 {rankInAll}위 / {totalCount}건
-                  </span>
-                </div>
+                {scoreValid ? (
+                  <div className="market-percentile-info">
+                    <span className="market-percentile-item">
+                      1년 내 {rankIn1Y}위 / {oneYearCount}건
+                    </span>
+                    <span className="market-percentile-divider">|</span>
+                    <span className="market-percentile-item">
+                      10년 내 {rankInAll}위 / {totalCount}건
+                    </span>
+                  </div>
+                ) : (
+                  <div className="market-percentile-info">
+                    <span className="market-percentile-item" style={{ color: '#dc2626' }}>
+                      {missingTimingInputs.length > 0
+                        ? `데이터 부족: ${missingTimingInputs.join(', ')} 누락`
+                        : '데이터 부족'}
+                    </span>
+                  </div>
+                )}
 
-                {/* 표준정규분포 곡선 */}
-                {(() => {
-                  const actualMean = 50
-                  const actualStdDev = 7
+                {/* 표준정규분포 곡선 (점수 산출 불가 시 숨김) */}
+                {scoreValid && (() => {
+                  const actualMean = TIMING_SCORE_DISTRIBUTION.mean
+                  const actualStdDev = TIMING_SCORE_DISTRIBUTION.std
                   const currentZScore = (avgScore - actualMean) / actualStdDev
 
                   const normalPDF = (z: number) => Math.exp(-0.5 * z * z) / Math.sqrt(2 * Math.PI)
@@ -1313,12 +1342,14 @@ ${globalSummary}
                     ? `상위 ${Math.round((1 - cdfValue) * 100)}%`
                     : `하위 ${Math.round(cdfValue * 100)}%`
 
+                  // stance 경계와 일치하는 점수 라벨 (90/75/60/40/20)
                   const stanceBoundaries = [
-                    { z: (65 - actualMean) / actualStdDev, label: '65' },
-                    { z: (57 - actualMean) / actualStdDev, label: '57' },
+                    { z: (90 - actualMean) / actualStdDev, label: '90' },
+                    { z: (75 - actualMean) / actualStdDev, label: '75' },
+                    { z: (60 - actualMean) / actualStdDev, label: '60' },
                     { z: 0, label: '50' },
-                    { z: (43 - actualMean) / actualStdDev, label: '43' },
-                    { z: (35 - actualMean) / actualStdDev, label: '35' },
+                    { z: (40 - actualMean) / actualStdDev, label: '40' },
+                    { z: (20 - actualMean) / actualStdDev, label: '20' },
                   ]
 
                   return (
@@ -1502,7 +1533,7 @@ ${globalSummary}
                     </div>
                   </div>
 
-                  {/* 6개월/12개월 확률 */}
+                  {/* 1년 hit rate + 10년 CAGR */}
                   {(() => {
                     const prob = getStanceProbability(stance)
                     return (
@@ -1510,56 +1541,55 @@ ${globalSummary}
                         <span className="market-probability-title">지금 투자하면? (1996~2026 30년 백테스트 기준)</span>
                         <div className="market-probability-grid">
                           <div className="market-probability-period">
-                            <span className="market-probability-label">6개월 후</span>
+                            <span className="market-probability-label">1년 후 (단기)</span>
                             <div className="market-probability-bars">
                               <div className="market-probability-bar-row">
-                                <span className="market-probability-direction up">상승</span>
+                                <span className="market-probability-direction up">상승 확률</span>
                                 <div className="market-probability-bar-track">
                                   <div
                                     className="market-probability-bar-fill up"
-                                    style={{ width: `${prob.month6.up}%` }}
+                                    style={{ width: `${prob.year1.up}%` }}
                                   />
                                 </div>
-                                <span className="market-probability-value">{prob.month6.up}%</span>
-                                <span className="market-probability-avg">(+{prob.month6.avgUp.toFixed(1)}%)</span>
+                                <span className="market-probability-value">{prob.year1.up}%</span>
+                                <span className="market-probability-avg">(+{prob.year1.avgUp.toFixed(1)}%)</span>
                               </div>
                               <div className="market-probability-bar-row">
-                                <span className="market-probability-direction down">하락</span>
+                                <span className="market-probability-direction down">하락 시</span>
                                 <div className="market-probability-bar-track">
                                   <div
                                     className="market-probability-bar-fill down"
-                                    style={{ width: `${prob.month6.down}%` }}
+                                    style={{ width: `${100 - prob.year1.up}%` }}
                                   />
                                 </div>
-                                <span className="market-probability-value">{prob.month6.down}%</span>
-                                <span className="market-probability-avg">({prob.month6.avgDown.toFixed(1)}%)</span>
+                                <span className="market-probability-value">{100 - prob.year1.up}%</span>
+                                <span className="market-probability-avg">({prob.year1.avgDown.toFixed(1)}%)</span>
+                              </div>
+                              <div style={{ marginTop: '8px', fontSize: '12px', color: '#475569' }}>
+                                평균 수익률: <strong>{prob.year1.avg >= 0 ? '+' : ''}{prob.year1.avg.toFixed(1)}%</strong>
                               </div>
                             </div>
                           </div>
                           <div className="market-probability-period">
-                            <span className="market-probability-label">12개월 후</span>
+                            <span className="market-probability-label">10년 후 (장기)</span>
                             <div className="market-probability-bars">
-                              <div className="market-probability-bar-row">
-                                <span className="market-probability-direction up">상승</span>
-                                <div className="market-probability-bar-track">
-                                  <div
-                                    className="market-probability-bar-fill up"
-                                    style={{ width: `${prob.month12.up}%` }}
-                                  />
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                <div style={{ fontSize: '13px' }}>
+                                  CAGR: <strong style={{ color: prob.year10.cagr >= 9 ? '#059669' : '#475569', fontSize: '16px' }}>
+                                    +{prob.year10.cagr.toFixed(1)}%/yr
+                                  </strong>
+                                  <span style={{ color: '#94a3b8', fontSize: '11px', marginLeft: '6px' }}>(시장 평균 +6.9%/yr)</span>
                                 </div>
-                                <span className="market-probability-value">{prob.month12.up}%</span>
-                                <span className="market-probability-avg">(+{prob.month12.avgUp.toFixed(1)}%)</span>
-                              </div>
-                              <div className="market-probability-bar-row">
-                                <span className="market-probability-direction down">하락</span>
-                                <div className="market-probability-bar-track">
-                                  <div
-                                    className="market-probability-bar-fill down"
-                                    style={{ width: `${prob.month12.down}%` }}
-                                  />
+                                <div style={{ fontSize: '13px' }}>
+                                  10년 누적: <strong>+{prob.year10.totalReturn.toFixed(0)}%</strong>
+                                  <span style={{ color: '#94a3b8', fontSize: '11px', marginLeft: '6px' }}>(1천만원 → {(10000 * (1 + prob.year10.totalReturn / 100)).toFixed(0)}만원)</span>
                                 </div>
-                                <span className="market-probability-value">{prob.month12.down}%</span>
-                                <span className="market-probability-avg">({prob.month12.avgDown.toFixed(1)}%)</span>
+                                <div style={{ fontSize: '13px' }}>
+                                  손실 확률: <strong style={{ color: prob.year10.up === 100 ? '#059669' : '#475569' }}>
+                                    {100 - prob.year10.up}%
+                                  </strong>
+                                  <span style={{ color: '#94a3b8', fontSize: '11px', marginLeft: '6px' }}>(시장 평균 10%)</span>
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -1613,10 +1643,16 @@ ${globalSummary}
                 const startDate = new Date()
                 startDate.setMonth(startDate.getMonth() - targetMonths)
 
-                const filteredHistory = chartPeriod === 'all' ? marketHistory : marketHistory.filter(h => new Date(h.date) >= startDate)
-                if (filteredHistory.length === 0) return null
-
-                const compositeScores = filteredHistory.map(h => calculateZScoreFromHistory(h))
+                // filteredHistory + 일치하는 timingScoreSeries 인덱스 추출
+                const filteredIndices: number[] = []
+                marketHistory.forEach((h, i) => {
+                  if (chartPeriod === 'all' || new Date(h.date) >= startDate) {
+                    filteredIndices.push(i)
+                  }
+                })
+                if (filteredIndices.length === 0) return null
+                const filteredHistory = filteredIndices.map(i => marketHistory[i])
+                const compositeScores = filteredIndices.map(i => timingScoreSeries[i])
                 const validScores = compositeScores.filter(s => !isNaN(s) && isFinite(s))
                 if (validScores.length === 0) return null
 
@@ -1639,12 +1675,12 @@ ${globalSummary}
                 const periodLabels = { '1y': '1년', '3y': '3년', '5y': '5년', '10y': '10년', 'all': '전체' }
 
                 const stanceRanges: { stance: InvestmentStance; label: string; min: number; max: number; color: string }[] = [
-                  { stance: 'aggressive_plus', label: '매수 적기', min: 60, max: 100, color: '#059669' },
-                  { stance: 'aggressive', label: '매수 우위', min: 55, max: 60, color: '#16a34a' },
-                  { stance: 'moderate_aggressive', label: '소폭 매수', min: 50, max: 55, color: '#22c55e' },
-                  { stance: 'neutral', label: '중립', min: 45, max: 50, color: '#f59e0b' },
-                  { stance: 'moderate_defensive', label: '소폭 방어', min: 41, max: 45, color: '#f97316' },
-                  { stance: 'defensive', label: '방어 우위', min: 0, max: 41, color: '#ef4444' },
+                  { stance: 'aggressive_plus', label: '매수 적기', min: 90, max: 101, color: '#059669' },
+                  { stance: 'aggressive', label: '매수 우위', min: 75, max: 90, color: '#16a34a' },
+                  { stance: 'moderate_aggressive', label: '소폭 매수', min: 60, max: 75, color: '#22c55e' },
+                  { stance: 'neutral', label: '중립', min: 40, max: 60, color: '#f59e0b' },
+                  { stance: 'moderate_defensive', label: '소폭 방어', min: 20, max: 40, color: '#f97316' },
+                  { stance: 'defensive', label: '방어 우위', min: 0, max: 20, color: '#ef4444' },
                 ]
 
                 return (
@@ -1816,13 +1852,13 @@ ${globalSummary}
                 )
               })()}
 
-              {/* 지표별 상세 - 핵심 지표 / 참고 지표 */}
+              {/* 지표별 상세 - 참고 지표 (Timing Score는 SPY drawdown 단일 산출, 별도 표시 불필요) */}
               <div className="market-indicators">
-                {/* 핵심 지표 (가중치 반영) */}
-                <div className="market-category">
+                {/* 핵심 지표 섹션은 새 구조에서 의미 없음 — 모든 11개 지표를 참고로 통합 */}
+                <div className="market-category" style={{ display: 'none' }}>
                   <div className="market-category-header">
                     <h3 className="market-category-title">핵심 지표</h3>
-                    <span className="market-category-subtitle">10년 상관분석 기반 가중 반영</span>
+                    <span className="market-category-subtitle"></span>
                   </div>
                   <div className="market-category-items">
                     {coreIndicators
