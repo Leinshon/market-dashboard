@@ -85,13 +85,21 @@ async function fetchFearGreed(): Promise<number | null> {
   }
 }
 
-// DBnomics API Helper for ISM PMI
-async function fetchDBnomicsISM(provider: string, dataset: string, series: string): Promise<number | null> {
+// DBnomics latest-observation helper.
+// validRange filters out corrupt / mis-mapped values (DBnomics ISM/pmi/pm has emitted
+// ~10-class values since 2025-09 which are clearly not PMI). For diffusion indices
+// like ISM, real-world range [20, 80] covers historical extremes with margin.
+async function fetchDBnomicsLatest(
+  provider: string,
+  dataset: string,
+  series: string,
+  validRange: [number, number] = [20, 80]
+): Promise<number | null> {
   try {
     const url = `https://api.db.nomics.world/v22/series/${provider}/${dataset}/${series}?observations=1`
     const response = await fetch(url)
     if (!response.ok) {
-      console.warn(`DBnomics API warning for ${provider}/${dataset}/${series}: ${response.status}`)
+      console.warn(`DBnomics warning ${provider}/${dataset}/${series}: ${response.status}`)
       return null
     }
     const data = await response.json()
@@ -99,23 +107,28 @@ async function fetchDBnomicsISM(provider: string, dataset: string, series: strin
     if (!seriesData || !seriesData.period || !seriesData.value) {
       return null
     }
-
-    const periods = seriesData.period
-    const values = seriesData.value
-
-    // Get the latest valid value (PMI should be between 30-70, filter out bad data)
+    const periods: string[] = seriesData.period
+    const values: (number | string)[] = seriesData.value
     for (let i = periods.length - 1; i >= 0; i--) {
-      const value = parseFloat(values[i])
-      if (value >= 30 && value <= 70) {
-        return Math.round(value * 100) / 100
+      const raw = values[i]
+      const v = typeof raw === 'number' ? raw : parseFloat(raw)
+      if (Number.isFinite(v) && v >= validRange[0] && v <= validRange[1]) {
+        return Math.round(v * 100) / 100
       }
     }
-
     return null
   } catch (error) {
-    console.warn(`DBnomics API error for ${provider}/${dataset}/${series}:`, error)
+    console.warn(`DBnomics error ${provider}/${dataset}/${series}:`, error)
     return null
   }
+}
+
+// PMI = simple average of sub-indices. Returns null if any sub is missing,
+// since a partial average is not a meaningful PMI value.
+function pmiFromSubs(subs: (number | null)[]): number | null {
+  if (subs.some(v => v === null)) return null
+  const nums = subs as number[]
+  return Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 100) / 100
 }
 
 // S&P 500 Earnings Yield scraper (multpl.com)
@@ -167,6 +180,8 @@ const FIELD_FREQUENCY: Record<string, keyof typeof STALE_THRESHOLDS> = {
   gdp_growth_qoq: 'quarterly',
   ism_manufacturing: 'monthly',
   ism_services: 'monthly',
+  ism_mfg_employment: 'monthly',
+  ism_svc_employment: 'monthly',
   retail_sales_yoy: 'monthly',
   cpi_yoy: 'monthly',
   core_cpi_yoy: 'monthly',
@@ -202,6 +217,8 @@ const FIELD_BOUNDS: Record<string, [number, number]> = {
   gdp_growth_qoq: [-40, 40],
   ism_manufacturing: [20, 80],
   ism_services: [20, 80],
+  ism_mfg_employment: [20, 80],
+  ism_svc_employment: [20, 80],
   retail_sales_yoy: [-30, 60],
   cpi_yoy: [-5, 25],
   core_cpi_yoy: [-5, 25],
@@ -340,8 +357,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       dgs3moData,
       icsaData,
       gdpGrowthData,
-      ismManufacturingData,
-      ismServicesData,
+      ismMfgProd,
+      ismMfgNeword,
+      ismMfgEmploy,
+      ismMfgSupdel,
+      ismMfgInven,
+      ismSvcBusact,
+      ismSvcNeword,
+      ismSvcEmploy,
+      ismSvcSupdel,
       retailSalesData,
       cpiData,
       coreCpiData,
@@ -379,8 +403,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       fetchFRED('DGS3MO', FRED_API_KEY, 5),
       fetchFRED('ICSA', FRED_API_KEY, 5),
       fetchFRED('A191RL1Q225SBEA', FRED_API_KEY, 5),
-      fetchDBnomicsISM('ISM', 'pmi', 'pm'),
-      fetchDBnomicsISM('ISM', 'nm-pmi', 'pm'),
+      // ISM Manufacturing PMI = avg(Production, New Orders, Employment, Supplier Deliveries, Inventories)
+      // DBnomics ISM/pmi/pm has been corrupt since 2025-09 (returning ~10), so we reconstruct PMI
+      // from the five sub-indices which remained fresh.
+      fetchDBnomicsLatest('ISM', 'production', 'in'),
+      fetchDBnomicsLatest('ISM', 'neword', 'in'),
+      fetchDBnomicsLatest('ISM', 'employment', 'in'),
+      fetchDBnomicsLatest('ISM', 'supdel', 'in'),
+      fetchDBnomicsLatest('ISM', 'inventories', 'in'),
+      // ISM Services PMI = avg(Business Activity, New Orders, Employment, Supplier Deliveries)
+      fetchDBnomicsLatest('ISM', 'nm-busact', 'in'),
+      fetchDBnomicsLatest('ISM', 'nm-neword', 'in'),
+      fetchDBnomicsLatest('ISM', 'nm-employment', 'in'),
+      fetchDBnomicsLatest('ISM', 'nm-supdel', 'in'),
       fetchFRED('RSXFS', FRED_API_KEY, 15),
       fetchFRED('CPIAUCSL', FRED_API_KEY, 15),
       fetchFRED('CPILFESL', FRED_API_KEY, 15),
@@ -494,19 +529,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       gdpGrowthQoQ = getStaleSafeFallback(previousRecord, 'gdp_growth_qoq', today)
     }
 
-    let ismManufacturing: number | null = null
-    if (ismManufacturingData !== null) {
-      ismManufacturing = ismManufacturingData
-    } else {
+    // ISM Manufacturing PMI from 5 sub-indices.
+    let ismManufacturing: number | null = pmiFromSubs([
+      ismMfgProd, ismMfgNeword, ismMfgEmploy, ismMfgSupdel, ismMfgInven,
+    ])
+    if (ismManufacturing === null) {
       ismManufacturing = getStaleSafeFallback(previousRecord, 'ism_manufacturing', today)
     }
 
-    let ismServices: number | null = null
-    if (ismServicesData !== null) {
-      ismServices = ismServicesData
-    } else {
+    // ISM Services PMI from 4 sub-indices (Business Activity, New Orders, Employment, Supplier Deliveries).
+    let ismServices: number | null = pmiFromSubs([
+      ismSvcBusact, ismSvcNeword, ismSvcEmploy, ismSvcSupdel,
+    ])
+    if (ismServices === null) {
       ismServices = getStaleSafeFallback(previousRecord, 'ism_services', today)
     }
+
+    // Employment sub-indices exposed directly. These signal labor demand within
+    // each ISM survey and lead nonfarm payrolls by ~1 month.
+    const ismMfgEmployment: number | null = ismMfgEmploy
+      ?? getStaleSafeFallback(previousRecord, 'ism_mfg_employment', today)
+    const ismSvcEmployment: number | null = ismSvcEmploy
+      ?? getStaleSafeFallback(previousRecord, 'ism_svc_employment', today)
 
     let retailSalesYoY: number | null = null
     if (retailSalesData.length >= 13) {
@@ -712,6 +756,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       gdp_growth_qoq: gdpGrowthQoQ,
       ism_manufacturing: ismManufacturing,
       ism_services: ismServices,
+      ism_mfg_employment: ismMfgEmployment,
+      ism_svc_employment: ismSvcEmployment,
       retail_sales_yoy: retailSalesYoY,
       cpi_yoy: cpiYoY,
       core_cpi_yoy: coreCpiYoY,
@@ -756,6 +802,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         gdpGrowthQoQ,
         ismManufacturing,
         ismServices,
+        ismMfgEmployment,
+        ismSvcEmployment,
+        ismMfgSubs: {
+          production: ismMfgProd,
+          newOrders: ismMfgNeword,
+          employment: ismMfgEmploy,
+          supplierDeliveries: ismMfgSupdel,
+          inventories: ismMfgInven,
+        },
+        ismSvcSubs: {
+          businessActivity: ismSvcBusact,
+          newOrders: ismSvcNeword,
+          employment: ismSvcEmploy,
+          supplierDeliveries: ismSvcSupdel,
+        },
         retailSalesYoY,
         cpiYoY,
         coreCpiYoY,
