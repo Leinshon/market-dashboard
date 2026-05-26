@@ -1231,8 +1231,8 @@ ${globalSummary}
       )}
 
       <div className="calc-section" style={{ display: activeTab === 'global' ? 'none' : 'block' }}>
-        {/* 날짜 선택 슬라이더 - overview 탭에서만 표시 */}
-        {activeTab === 'overview' && marketHistory.length > 0 && (
+        {/* 날짜 선택 슬라이더 - 종합/매크로/한국매크로/타이밍 탭에서 표시 (글로벌만 제외) */}
+        {activeTab !== 'global' && marketHistory.length > 0 && (
           <div className="market-date-slider">
             <div className="market-date-slider-header">
               <span className="market-date-slider-label">조회 날짜</span>
