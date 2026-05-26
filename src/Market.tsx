@@ -65,6 +65,7 @@ interface MarketHistoryRecord {
   unemployment_rate: number | null
   labor_participation: number | null
   // 통화정책 지표
+  fed_funds_rate: number | null
   treasury_10y: number | null
   treasury_2y: number | null
   dollar_index: number | null
@@ -3078,6 +3079,58 @@ ${globalSummary}
                     <p className="market-timing-desc">금리와 통화 흐름을 보여주는 가격 지표</p>
                   </div>
                   <div className="global-indices-grid">
+                    {/* Fed Funds Rate (정책금리) */}
+                    {(() => {
+                      const latestData = marketHistory[marketHistory.length - 1]
+                      const ffrHistory = marketHistory.filter(h => h.fed_funds_rate != null && new Date(h.date) >= chartCutoffDate)
+                      const isExpanded = expandedMacroCard === 'ffr'
+                      const ffr = latestData?.fed_funds_rate
+                      const color = ffr != null ? (ffr >= 5 ? '#ef4444' : ffr >= 3 ? '#f59e0b' : '#22c55e') : '#94a3b8'
+                      return (
+                        <div
+                          className={`global-index-card ${isExpanded ? 'expanded' : ''}`}
+                          onClick={() => setExpandedMacroCard(isExpanded ? null : 'ffr')}
+                        >
+                          <div className="global-index-header">
+                            <span className="global-index-name">Fed Funds Rate</span>
+                            <span className="global-index-region">미국 기준금리</span>
+                          </div>
+                          <div className="global-index-price" style={{ color }}>
+                            {ffr != null ? `${ffr.toFixed(2)}%` : 'N/A'}
+                          </div>
+                          <p className="global-index-desc">연준의 정책금리 (effective daily). 모든 단기금리의 기준</p>
+                          {ffrHistory.length > 0 && (
+                            <div className={isExpanded ? 'global-detail-chart' : 'global-mini-chart'}>
+                              <Line
+                                data={{
+                                  labels: ffrHistory.map(h => h.date),
+                                  datasets: [{
+                                    data: ffrHistory.map(h => h.fed_funds_rate as number),
+                                    borderColor: color,
+                                    borderWidth: isExpanded ? 2 : 1.5,
+                                    backgroundColor: `${color}15`,
+                                    fill: true,
+                                    tension: 0.3,
+                                    pointRadius: isExpanded ? 2 : 0,
+                                  }],
+                                }}
+                                options={{
+                                  responsive: true,
+                                  maintainAspectRatio: false,
+                                  interaction: { mode: 'index', intersect: false },
+                                  plugins: { legend: { display: false } },
+                                  scales: {
+                                    x: { display: isExpanded, ticks: { maxTicksLimit: 10, font: { size: 10 } } },
+                                    y: { display: isExpanded, ticks: { font: { size: 10 } } },
+                                  },
+                                }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
+
                     {/* 10년물 금리 */}
                     {(() => {
                       const latestData = marketHistory[marketHistory.length - 1]

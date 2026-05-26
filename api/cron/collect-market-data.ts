@@ -305,6 +305,7 @@ const FIELD_FREQUENCY: Record<string, keyof typeof STALE_THRESHOLDS> = {
   kr_exports: 'monthly',
   kr_imports: 'monthly',
   kr_consumer_sentiment: 'monthly',
+  fed_funds_rate: 'daily',
 }
 
 // Sanity bounds per field. Values outside these ranges are nulled before save and logged.
@@ -386,6 +387,7 @@ const FIELD_BOUNDS: Record<string, [number, number]> = {
   kospi_price: [200, 10_000],
   kospi_volume: [1_000_000, 100_000_000_000],
   kosdaq_price: [100, 5_000],
+  fed_funds_rate: [0, 25],
 }
 
 function validateRecord<T extends Record<string, unknown>>(record: T): T {
@@ -536,6 +538,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       goldFuturesData,
       kospiData,
       kosdaqData,
+      fedFundsRateData,
     ] = await Promise.all([
       fetchFearGreed(),
       fetchYahooQuote('^VIX'),
@@ -591,6 +594,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // 한국 매크로 (KOSPI, KOSDAQ)
       fetchYahooQuote('^KS11'),
       fetchYahooQuote('^KQ11'),
+      // Fed funds rate (daily effective)
+      fetchFRED('DFF', FRED_API_KEY, 5),
     ])
 
     // ECOS API destructure - Promise.all 변수 너무 길어져서 별도 fetch
@@ -963,6 +968,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       kosdaqPrice = Math.round(kosdaqData.chart.result[0].meta.regularMarketPrice * 100) / 100
     }
 
+    // Fed funds rate (effective)
+    let fedFundsRate: number | null = null
+    if (fedFundsRateData.length > 0) {
+      fedFundsRate = Math.round(parseFloat(fedFundsRateData[0].value) * 100) / 100
+    }
+    if (fedFundsRate === null) {
+      fedFundsRate = getStaleSafeFallback(previousRecord, 'fed_funds_rate', new Date().toISOString().split('T')[0])
+    }
+
     // FINRA margin debt — monthly 발표라 매일 fetch 시도하되 실패 시 직전 값 fallback
     let marginDebt: number | null = await fetchLatestMarginDebt()
     if (marginDebt === null) {
@@ -1080,6 +1094,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       kospi_price: kospiPrice,
       kospi_volume: kospiVolume,
       kosdaq_price: kosdaqPrice,
+      fed_funds_rate: fedFundsRate,
       raw_data: {
         fearGreed: fearGreedValue,
         vix,
