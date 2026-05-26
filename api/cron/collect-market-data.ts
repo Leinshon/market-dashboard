@@ -33,6 +33,48 @@ interface YahooQuoteResult {
   }
 }
 
+// ECOS (한국은행) API Helper — 최신 1건만 가져옴
+// stat_code/cycle/item_code 조합으로 한국 매크로 지표 fetch
+// daily 지표는 직전 7일, monthly는 직전 60일 범위에서 조회
+async function fetchEcosLatest(
+  statCode: string,
+  itemCode: string,
+  cycle: 'D' | 'M' | 'Q',
+  apiKey: string,
+): Promise<number | null> {
+  try {
+    const now = new Date()
+    let start = ''; let end = ''
+    if (cycle === 'D') {
+      end = now.toISOString().slice(0, 10).replace(/-/g, '')
+      const past = new Date(now.getTime() - 14 * 86_400_000)
+      start = past.toISOString().slice(0, 10).replace(/-/g, '')
+    } else if (cycle === 'M') {
+      end = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`
+      const past = new Date(now.getFullYear(), now.getMonth() - 3, 1)
+      start = `${past.getFullYear()}${String(past.getMonth() + 1).padStart(2, '0')}`
+    } else {
+      end = `${now.getFullYear()}Q${Math.ceil((now.getMonth() + 1) / 3)}`
+      const py = now.getMonth() <= 2 ? now.getFullYear() - 1 : now.getFullYear()
+      const pq = ((Math.ceil((now.getMonth() + 1) / 3) + 3) % 4) || 4
+      start = `${py}Q${pq}`
+    }
+    const url = `https://ecos.bok.or.kr/api/StatisticSearch/${apiKey}/json/kr/1/10/${statCode}/${cycle}/${start}/${end}/${itemCode}`
+    const r = await fetch(url)
+    if (!r.ok) return null
+    const j = await r.json()
+    if (j.RESULT) return null
+    const rows = j.StatisticSearch?.row ?? []
+    if (rows.length === 0) return null
+    // 가장 최근 (TIME 큰) row
+    rows.sort((a: { TIME: string }, b: { TIME: string }) => b.TIME.localeCompare(a.TIME))
+    const val = parseFloat(rows[0].DATA_VALUE)
+    return Number.isFinite(val) ? val : null
+  } catch {
+    return null
+  }
+}
+
 // FRED API Helper
 async function fetchFRED(seriesId: string, apiKey: string, limit = 10): Promise<FREDObservation[]> {
   try {
@@ -243,6 +285,26 @@ const FIELD_FREQUENCY: Record<string, keyof typeof STALE_THRESHOLDS> = {
   aaii_neutral: 'weekly',
   aaii_spread: 'weekly',
   spy_volume: 'daily',
+  // 한국 매크로
+  kr_base_rate: 'monthly',
+  kr_treasury_10y: 'daily',
+  kr_treasury_3y: 'daily',
+  kr_call_rate: 'daily',
+  kr_corp_aa_3y: 'daily',
+  kr_corp_bbb_3y: 'daily',
+  kr_cpi: 'monthly',
+  kr_ppi: 'monthly',
+  usd_krw: 'daily',
+  kr_forex_reserves: 'monthly',
+  kr_industrial_production: 'monthly',
+  kr_mining_manufacturing: 'monthly',
+  kr_employment: 'monthly',
+  kr_econ_active_pop: 'monthly',
+  kr_current_account: 'monthly',
+  kr_trade_balance: 'monthly',
+  kr_exports: 'monthly',
+  kr_imports: 'monthly',
+  kr_consumer_sentiment: 'monthly',
 }
 
 // Sanity bounds per field. Values outside these ranges are nulled before save and logged.
@@ -301,6 +363,29 @@ const FIELD_BOUNDS: Record<string, [number, number]> = {
   aaii_neutral: [0, 1],
   aaii_spread: [-1, 1],              // bullish - bearish
   spy_volume: [1_000_000, 10_000_000_000],
+  // 한국 매크로 범위
+  kr_base_rate: [0, 20],
+  kr_treasury_10y: [0, 20],
+  kr_treasury_3y: [0, 20],
+  kr_call_rate: [0, 20],
+  kr_corp_aa_3y: [0, 30],
+  kr_corp_bbb_3y: [0, 50],
+  kr_cpi: [50, 200],
+  kr_ppi: [50, 200],
+  usd_krw: [800, 2500],
+  kr_forex_reserves: [10_000, 1_000_000],   // 백만달러
+  kr_industrial_production: [30, 200],
+  kr_mining_manufacturing: [30, 200],
+  kr_employment: [10_000, 50_000],          // 천명
+  kr_econ_active_pop: [10_000, 50_000],     // 천명
+  kr_current_account: [-50_000, 100_000],   // 백만달러
+  kr_trade_balance: [-50_000, 100_000],
+  kr_exports: [0, 200_000],
+  kr_imports: [0, 200_000],
+  kr_consumer_sentiment: [50, 150],
+  kospi_price: [200, 10_000],
+  kospi_volume: [1_000_000, 100_000_000_000],
+  kosdaq_price: [100, 5_000],
 }
 
 function validateRecord<T extends Record<string, unknown>>(record: T): T {
@@ -449,6 +534,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       inflation5y5yData,
       copperData,
       goldFuturesData,
+      kospiData,
+      kosdaqData,
     ] = await Promise.all([
       fetchFearGreed(),
       fetchYahooQuote('^VIX'),
@@ -501,7 +588,63 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       fetchFRED('T5YIFR', FRED_API_KEY, 5),
       fetchYahooQuote('HG=F'),
       fetchYahooQuote('GC=F'),
+      // 한국 매크로 (KOSPI, KOSDAQ)
+      fetchYahooQuote('^KS11'),
+      fetchYahooQuote('^KQ11'),
     ])
+
+    // ECOS API destructure - Promise.all 변수 너무 길어져서 별도 fetch
+    const ECOS_KEY = process.env.ECOS_API_KEY?.replace(/^["']|["']$/g, '') ?? ''
+    const krMacro: Record<string, number | null> = {
+      kr_base_rate: null, kr_treasury_10y: null, kr_treasury_3y: null, kr_call_rate: null,
+      kr_corp_aa_3y: null, kr_corp_bbb_3y: null,
+      kr_cpi: null, kr_ppi: null,
+      usd_krw: null, kr_forex_reserves: null,
+      kr_industrial_production: null, kr_mining_manufacturing: null,
+      kr_employment: null, kr_econ_active_pop: null,
+      kr_current_account: null, kr_trade_balance: null, kr_exports: null, kr_imports: null,
+      kr_consumer_sentiment: null,
+    }
+    if (ECOS_KEY) {
+      const ecosFetches = await Promise.all([
+        fetchEcosLatest('722Y001', '0101000',   'M', ECOS_KEY),
+        fetchEcosLatest('817Y002', '010210000', 'D', ECOS_KEY),
+        fetchEcosLatest('817Y002', '010200000', 'D', ECOS_KEY),
+        fetchEcosLatest('817Y002', '010101000', 'D', ECOS_KEY),
+        fetchEcosLatest('817Y002', '010300000', 'D', ECOS_KEY),
+        fetchEcosLatest('817Y002', '010320000', 'D', ECOS_KEY),
+        fetchEcosLatest('901Y009', '0',         'M', ECOS_KEY),
+        fetchEcosLatest('404Y014', '*AA',       'M', ECOS_KEY),
+        fetchEcosLatest('731Y001', '0000001',   'D', ECOS_KEY),
+        fetchEcosLatest('732Y001', '99',        'M', ECOS_KEY),
+        fetchEcosLatest('901Y033', 'A00',       'M', ECOS_KEY),
+        fetchEcosLatest('901Y033', 'AB00',      'M', ECOS_KEY),
+        fetchEcosLatest('901Y027', 'I61BA',     'M', ECOS_KEY),
+        fetchEcosLatest('901Y027', 'I61B',      'M', ECOS_KEY),
+        fetchEcosLatest('301Y013', '000000',    'M', ECOS_KEY),
+        fetchEcosLatest('301Y013', '100000',    'M', ECOS_KEY),
+        fetchEcosLatest('301Y013', '110000',    'M', ECOS_KEY),
+        fetchEcosLatest('301Y013', '120000',    'M', ECOS_KEY),
+        fetchEcosLatest('511Y002', 'FMAA',      'M', ECOS_KEY),
+      ])
+      const keys = Object.keys(krMacro)
+      keys.forEach((k, i) => { krMacro[k] = ecosFetches[i] })
+      // 외환보유고 단위 변환 (천달러 → 백만달러)
+      if (krMacro.kr_forex_reserves !== null) {
+        krMacro.kr_forex_reserves = krMacro.kr_forex_reserves / 1000
+      }
+      // stale fallback
+      for (const k of keys) {
+        if (krMacro[k] === null) {
+          krMacro[k] = getStaleSafeFallback(previousRecord, k, new Date().toISOString().split('T')[0])
+        }
+      }
+    } else {
+      console.warn('ECOS_API_KEY missing — 한국 매크로 fetch 스킵')
+      for (const k of Object.keys(krMacro)) {
+        krMacro[k] = getStaleSafeFallback(previousRecord, k, new Date().toISOString().split('T')[0])
+      }
+    }
 
     // Process data
     const today = new Date().toISOString().split('T')[0]
@@ -796,13 +939,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let spyVolume: number | null = null
     if (spyData?.chart?.result?.[0]) {
       const r = spyData.chart.result[0]
-      const ts = r.timestamp ?? []
       const vols = r.indicators?.quote?.[0]?.volume ?? []
       if (vols.length > 0) {
         const lastVol = vols[vols.length - 1]
         if (typeof lastVol === 'number' && Number.isFinite(lastVol)) spyVolume = lastVol
       }
-      void ts
+    }
+
+    // KOSPI / KOSDAQ
+    let kospiPrice: number | null = null
+    let kospiVolume: number | null = null
+    if (kospiData?.chart?.result?.[0]) {
+      const r = kospiData.chart.result[0]
+      kospiPrice = Math.round(r.meta.regularMarketPrice * 100) / 100
+      const vols = r.indicators?.quote?.[0]?.volume ?? []
+      if (vols.length > 0) {
+        const lastVol = vols[vols.length - 1]
+        if (typeof lastVol === 'number' && Number.isFinite(lastVol)) kospiVolume = lastVol
+      }
+    }
+    let kosdaqPrice: number | null = null
+    if (kosdaqData?.chart?.result?.[0]) {
+      kosdaqPrice = Math.round(kosdaqData.chart.result[0].meta.regularMarketPrice * 100) / 100
     }
 
     // FINRA margin debt — monthly 발표라 매일 fetch 시도하되 실패 시 직전 값 fallback
@@ -899,6 +1057,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       aaii_neutral: aaiiNeutral,
       aaii_spread: aaiiSpread,
       spy_volume: spyVolume,
+      // 한국 매크로 (ECOS + Yahoo)
+      kr_base_rate: krMacro.kr_base_rate,
+      kr_treasury_10y: krMacro.kr_treasury_10y,
+      kr_treasury_3y: krMacro.kr_treasury_3y,
+      kr_call_rate: krMacro.kr_call_rate,
+      kr_corp_aa_3y: krMacro.kr_corp_aa_3y,
+      kr_corp_bbb_3y: krMacro.kr_corp_bbb_3y,
+      kr_cpi: krMacro.kr_cpi,
+      kr_ppi: krMacro.kr_ppi,
+      usd_krw: krMacro.usd_krw,
+      kr_forex_reserves: krMacro.kr_forex_reserves,
+      kr_industrial_production: krMacro.kr_industrial_production,
+      kr_mining_manufacturing: krMacro.kr_mining_manufacturing,
+      kr_employment: krMacro.kr_employment,
+      kr_econ_active_pop: krMacro.kr_econ_active_pop,
+      kr_current_account: krMacro.kr_current_account,
+      kr_trade_balance: krMacro.kr_trade_balance,
+      kr_exports: krMacro.kr_exports,
+      kr_imports: krMacro.kr_imports,
+      kr_consumer_sentiment: krMacro.kr_consumer_sentiment,
+      kospi_price: kospiPrice,
+      kospi_volume: kospiVolume,
+      kosdaq_price: kosdaqPrice,
       raw_data: {
         fearGreed: fearGreedValue,
         vix,

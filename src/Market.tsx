@@ -77,6 +77,29 @@ interface MarketHistoryRecord {
   hyg_price?: number | null
   lqd_price?: number | null
   vix_9d?: number | null
+  // 한국 매크로 (v4.5 KR macro tab)
+  kr_base_rate?: number | null
+  kr_treasury_10y?: number | null
+  kr_treasury_3y?: number | null
+  kr_call_rate?: number | null
+  kr_corp_aa_3y?: number | null
+  kr_corp_bbb_3y?: number | null
+  kr_cpi?: number | null
+  kr_ppi?: number | null
+  usd_krw?: number | null
+  kr_forex_reserves?: number | null
+  kr_industrial_production?: number | null
+  kr_mining_manufacturing?: number | null
+  kr_employment?: number | null
+  kr_econ_active_pop?: number | null
+  kr_current_account?: number | null
+  kr_trade_balance?: number | null
+  kr_exports?: number | null
+  kr_imports?: number | null
+  kr_consumer_sentiment?: number | null
+  kospi_price?: number | null
+  kospi_volume?: number | null
+  kosdaq_price?: number | null
 }
 
 // 시장 지표 타입
@@ -666,7 +689,7 @@ export default function Market() {
   const [marketChatInput, setMarketChatInput] = useState('')
   const [marketChatLoading, setMarketChatLoading] = useState(false)
   const [expandedIndicator, setExpandedIndicator] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'overview' | 'global' | 'macro' | 'timing'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'global' | 'macro' | 'kr-macro' | 'timing'>('overview')
   const [expandedMacroCard, setExpandedMacroCard] = useState<string | null>(null)
   const [chartPeriod, setChartPeriod] = useState<'1y' | '3y' | '5y' | '10y' | 'all'>('3y')
 
@@ -1016,6 +1039,12 @@ ${globalSummary}
           onClick={() => setActiveTab('macro')}
         >
           미국 매크로 지표
+        </button>
+        <button
+          className={`calc-tab ${activeTab === 'kr-macro' ? 'active' : ''}`}
+          onClick={() => setActiveTab('kr-macro')}
+        >
+          한국 매크로 지표
         </button>
         <button
           className={`calc-tab ${activeTab === 'timing' ? 'active' : ''}`}
@@ -3253,6 +3282,262 @@ ${globalSummary}
                   </div>
                 </div>
               )}
+
+              {activeTab === 'kr-macro' && (() => {
+                if (marketHistory.length === 0) return null
+
+                // 가장 최근 valid 값 찾기 (월간 지표는 발표 lag 때문에 latest record에 없을 수 있음)
+                const latestValid = <K extends keyof MarketHistoryRecord>(field: K): { value: number | null; date: string } => {
+                  for (let i = marketHistory.length - 1; i >= 0; i--) {
+                    const v = marketHistory[i][field]
+                    if (v !== null && v !== undefined && Number.isFinite(v as number)) {
+                      return { value: v as number, date: marketHistory[i].date }
+                    }
+                  }
+                  return { value: null, date: '' }
+                }
+
+                // YoY: 가장 최근 valid 값 기준 52주 전 동일 필드 값 대비 변화율
+                const yoyForField = (field: keyof MarketHistoryRecord): number | null => {
+                  // 가장 최근 valid record의 index 찾기
+                  let curIdx = -1
+                  for (let i = marketHistory.length - 1; i >= 0; i--) {
+                    const v = marketHistory[i][field]
+                    if (v !== null && v !== undefined && Number.isFinite(v as number)) { curIdx = i; break }
+                  }
+                  if (curIdx < 52) return null
+                  const cur = marketHistory[curIdx][field] as number
+                  const old = marketHistory[curIdx - 52][field] as number | null | undefined
+                  if (old == null || old === 0) return null
+                  return (cur / old - 1) * 100
+                }
+
+                interface KRCardConfig {
+                  field: keyof MarketHistoryRecord
+                  name: string
+                  ko: string
+                  desc: string
+                  format: (v: number) => string
+                  colorRule?: (v: number) => string
+                  showYoy?: boolean
+                  alt?: string  // 부가 정보 (예: 신용스프레드)
+                }
+
+                const sections: { title: string; subtitle: string; cards: KRCardConfig[] }[] = [
+                  {
+                    title: '금리', subtitle: '한국은행 기준금리 및 시장금리',
+                    cards: [
+                      { field: 'kr_base_rate', name: 'BOK Base Rate', ko: '한국은행 기준금리',
+                        desc: '한국은행이 결정하는 정책금리. 경제 전반 금리의 기준',
+                        format: v => `${v.toFixed(2)}%`, colorRule: (v: number) => v >= 3 ? '#ef4444' : v >= 2 ? '#f59e0b' : '#22c55e' },
+                      { field: 'kr_treasury_10y', name: 'KTB 10Y', ko: '국고채 10년',
+                        desc: '장기 국채 수익률. 경기 및 인플레 기대 반영',
+                        format: v => `${v.toFixed(2)}%`, colorRule: () => '#6366f1' },
+                      { field: 'kr_treasury_3y', name: 'KTB 3Y', ko: '국고채 3년',
+                        desc: '중기 국채 수익률. 한은 정책 전망 반영',
+                        format: v => `${v.toFixed(2)}%`, colorRule: () => '#6366f1' },
+                      { field: 'kr_call_rate', name: 'Call Rate', ko: '콜금리 1일',
+                        desc: '은행간 1일 단기자금 금리. 기준금리 근처에서 움직임',
+                        format: v => `${v.toFixed(2)}%`, colorRule: () => '#94a3b8' },
+                    ],
+                  },
+                  {
+                    title: '신용', subtitle: '회사채 시장 신용 위험',
+                    cards: [
+                      { field: 'kr_corp_aa_3y', name: 'Corp AA- 3Y', ko: '회사채 AA- 3년',
+                        desc: '우량 회사채 수익률. 국고채 대비 신용 프리미엄',
+                        format: v => `${v.toFixed(2)}%`, colorRule: () => '#0ea5e9' },
+                      { field: 'kr_corp_bbb_3y', name: 'Corp BBB- 3Y', ko: '회사채 BBB- 3년',
+                        desc: '투기등급 회사채 수익률. 신용 스트레스 척도',
+                        format: v => `${v.toFixed(2)}%`,
+                        colorRule: (v: number) => v >= 12 ? '#ef4444' : v >= 8 ? '#f59e0b' : '#0ea5e9' },
+                    ],
+                  },
+                  {
+                    title: '물가', subtitle: '소비자/생산자 물가',
+                    cards: [
+                      { field: 'kr_cpi', name: 'CPI Index', ko: '소비자물가지수',
+                        desc: '소비자물가지수 (2020=100). YoY 변화로 인플레율 산출',
+                        format: v => v.toFixed(2), showYoy: true,
+                        colorRule: () => '#a855f7' },
+                      { field: 'kr_ppi', name: 'PPI Index', ko: '생산자물가지수',
+                        desc: '생산자물가지수 (2020=100). 소비자물가 선행 신호',
+                        format: v => v.toFixed(2), showYoy: true,
+                        colorRule: () => '#a855f7' },
+                    ],
+                  },
+                  {
+                    title: '외환', subtitle: '환율 및 외환보유고',
+                    cards: [
+                      { field: 'usd_krw', name: 'USD/KRW', ko: '원/달러 환율',
+                        desc: '미국 달러 대비 원화 환율. 한국 자산 가치의 기준',
+                        format: v => `₩${v.toFixed(0)}`,
+                        colorRule: (v: number) => v >= 1400 ? '#ef4444' : v >= 1300 ? '#f59e0b' : '#22c55e' },
+                      { field: 'kr_forex_reserves', name: 'FX Reserves', ko: '외환보유고',
+                        desc: '한국이 보유한 외환 (백만달러). 위기 대응 여력',
+                        format: v => `$${(v / 1000).toFixed(1)}B`, colorRule: () => '#0ea5e9' },
+                    ],
+                  },
+                  {
+                    title: '생산', subtitle: '경제 활동 수준',
+                    cards: [
+                      { field: 'kr_industrial_production', name: 'Industrial Production', ko: '전산업생산지수',
+                        desc: '전산업 생산지수 (2020=100). 광공업+서비스업 포함',
+                        format: v => v.toFixed(1), showYoy: true,
+                        colorRule: () => '#22c55e' },
+                      { field: 'kr_mining_manufacturing', name: 'Mfg Production', ko: '광공업생산지수',
+                        desc: '광공업 생산지수. 제조업 경기의 직접 신호',
+                        format: v => v.toFixed(1), showYoy: true,
+                        colorRule: () => '#22c55e' },
+                    ],
+                  },
+                  {
+                    title: '고용', subtitle: '노동시장 상태',
+                    cards: [
+                      { field: 'kr_employment', name: 'Employed', ko: '취업자수',
+                        desc: '취업자 수 (천명). 고용 시장 활력 지표',
+                        format: v => `${(v / 1000).toFixed(2)}M`, showYoy: true,
+                        colorRule: () => '#22c55e' },
+                      { field: 'kr_econ_active_pop', name: 'Labor Force', ko: '경제활동인구',
+                        desc: '경제활동인구 (천명). 취업자+실업자',
+                        format: v => `${(v / 1000).toFixed(2)}M`,
+                        colorRule: () => '#94a3b8' },
+                    ],
+                  },
+                  {
+                    title: '무역', subtitle: '국제수지 및 수출입',
+                    cards: [
+                      { field: 'kr_current_account', name: 'Current Account', ko: '경상수지',
+                        desc: '경상수지 (백만달러). 흑자 = 외화 유입',
+                        format: v => `$${(v / 1000).toFixed(2)}B`,
+                        colorRule: (v: number) => v >= 0 ? '#22c55e' : '#ef4444' },
+                      { field: 'kr_trade_balance', name: 'Trade Balance', ko: '상품수지',
+                        desc: '상품수지 (백만달러). 수출-수입',
+                        format: v => `$${(v / 1000).toFixed(2)}B`,
+                        colorRule: (v: number) => v >= 0 ? '#22c55e' : '#ef4444' },
+                      { field: 'kr_exports', name: 'Exports', ko: '수출',
+                        desc: '월간 상품수출 (백만달러)',
+                        format: v => `$${(v / 1000).toFixed(2)}B`, showYoy: true,
+                        colorRule: () => '#22c55e' },
+                      { field: 'kr_imports', name: 'Imports', ko: '수입',
+                        desc: '월간 상품수입 (백만달러)',
+                        format: v => `$${(v / 1000).toFixed(2)}B`, showYoy: true,
+                        colorRule: () => '#f59e0b' },
+                    ],
+                  },
+                  {
+                    title: '심리 및 주식', subtitle: '소비자 심리 + 한국 주식',
+                    cards: [
+                      { field: 'kr_consumer_sentiment', name: 'Consumer Sentiment', ko: '소비자심리지수',
+                        desc: '소비자 현재생활형편 CSI. 100 이상 = 낙관',
+                        format: v => v.toFixed(0),
+                        colorRule: (v: number) => v >= 100 ? '#22c55e' : v >= 90 ? '#f59e0b' : '#ef4444' },
+                      { field: 'kospi_price', name: 'KOSPI', ko: 'KOSPI 종가',
+                        desc: '한국 종합주가지수. 대형주 중심',
+                        format: v => v.toFixed(2),
+                        colorRule: () => '#3b82f6' },
+                      { field: 'kosdaq_price', name: 'KOSDAQ', ko: 'KOSDAQ 종가',
+                        desc: '코스닥 지수. 중소형 기술주 중심',
+                        format: v => v.toFixed(2),
+                        colorRule: () => '#8b5cf6' },
+                    ],
+                  },
+                ]
+
+                return (
+                  <div className="market-timing-dashboard">
+                    <div className="market-timing-header">
+                      <h2 className="market-timing-title">한국 매크로 지표</h2>
+                      <p className="market-timing-desc">한국은행 ECOS API + KOSPI/KOSDAQ. 금리/물가/외환/생산/고용/무역/심리</p>
+                    </div>
+                    <div className="chart-period-selector">
+                      {(['1y', '3y', '5y', '10y', 'all'] as const).map(period => (
+                        <button
+                          key={period}
+                          className={`period-btn ${chartPeriod === period ? 'active' : ''}`}
+                          onClick={() => setChartPeriod(period)}
+                        >
+                          {period === '1y' ? '1년' : period === '3y' ? '3년' : period === '5y' ? '5년' : period === '10y' ? '10년' : '전체'}
+                        </button>
+                      ))}
+                    </div>
+
+                    {sections.map(section => (
+                      <div key={section.title}>
+                        <div className="market-timing-header">
+                          <h2 className="market-timing-title">{section.title}</h2>
+                          <p className="market-timing-desc">{section.subtitle}</p>
+                        </div>
+                        <div className="global-indices-grid">
+                          {section.cards.map(card => {
+                            const { value: val, date: valDate } = latestValid(card.field)
+                            const yoy = card.showYoy ? yoyForField(card.field) : null
+                            const history = marketHistory.filter(h => {
+                              const v = h[card.field]
+                              return v !== null && v !== undefined && new Date(h.date) >= chartCutoffDate
+                            })
+                            const cardKey = `kr-${card.field}`
+                            const isExpanded = expandedMacroCard === cardKey
+                            const color = val != null && card.colorRule ? card.colorRule(val) : '#94a3b8'
+                            return (
+                              <div
+                                key={cardKey}
+                                className={`global-index-card ${isExpanded ? 'expanded' : ''}`}
+                                onClick={() => setExpandedMacroCard(isExpanded ? null : cardKey)}
+                              >
+                                <div className="global-index-header">
+                                  <span className="global-index-name">{card.name}</span>
+                                  <span className="global-index-region">{card.ko}</span>
+                                </div>
+                                <div className="global-index-price" style={{ color }}>
+                                  {val != null ? card.format(val) : 'N/A'}
+                                </div>
+                                {valDate && (
+                                  <div style={{ fontSize: '10px', color: '#94a3b8' }}>as of {valDate}</div>
+                                )}
+                                {yoy !== null && (
+                                  <div style={{ fontSize: '12px', color: yoy >= 0 ? '#22c55e' : '#ef4444', marginTop: '4px' }}>
+                                    YoY: {yoy >= 0 ? '+' : ''}{yoy.toFixed(1)}%
+                                  </div>
+                                )}
+                                <p className="global-index-desc">{card.desc}</p>
+                                {history.length > 0 && (
+                                  <div className={isExpanded ? 'global-detail-chart' : 'global-mini-chart'}>
+                                    <Line
+                                      data={{
+                                        labels: history.map(h => h.date),
+                                        datasets: [{
+                                          data: history.map(h => h[card.field] as number),
+                                          borderColor: color,
+                                          borderWidth: isExpanded ? 2 : 1.5,
+                                          backgroundColor: `${color}15`,
+                                          fill: true,
+                                          tension: 0.3,
+                                          pointRadius: isExpanded ? 2 : 0,
+                                        }],
+                                      }}
+                                      options={{
+                                        responsive: true,
+                                        maintainAspectRatio: false,
+                                        interaction: { mode: 'index', intersect: false },
+                                        plugins: { legend: { display: false } },
+                                        scales: {
+                                          x: { display: isExpanded, ticks: { maxTicksLimit: 10, font: { size: 10 } } },
+                                          y: { display: isExpanded, ticks: { font: { size: 10 } } },
+                                        },
+                                      }}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
 
               <div className="market-footer">
                 <p>마지막 업데이트: {new Date(selectedMarketData.lastUpdated).toLocaleString('ko-KR')}</p>
