@@ -14,7 +14,7 @@ import {
 import { Line } from 'react-chartjs-2'
 import { supabase } from './lib/supabase'
 import { calculateTimingScoreSeries, calculateRiskSignal, TIMING_SCORE_DISTRIBUTION, type RiskSignal } from './lib/composite-score'
-import { computeRegimeSeries, simulateDca, REGIME_INFO } from './lib/risk-regime'
+import { computeRegimeSeries, simulateDca, regimeTimeline, drawdownContext, REGIME_INFO } from './lib/risk-regime'
 import './Market.css'
 
 // Chart.js 등록
@@ -980,6 +980,10 @@ export default function Market() {
     return simulateDca(regimeSeries, dcaMonthly)
   }, [regimeSeries, dcaMonthly])
 
+  // 레짐 전환 타임라인 + 낙폭 맥락
+  const regimeTimelineData = useMemo(() => regimeSeries.length ? regimeTimeline(regimeSeries) : null, [regimeSeries])
+  const ddContext = useMemo(() => regimeSeries.length ? drawdownContext(regimeSeries) : null, [regimeSeries])
+
   // 현재(최신 또는 선택 시점) 레짐
   const currentRegime = useMemo(() => {
     if (regimeSeries.length === 0) return null
@@ -1341,6 +1345,55 @@ ${globalSummary}
             )
           })()}
 
+          {/* 낙폭 / 회복 맥락 (기능4) */}
+          {ddContext && (
+            <div className="market-phase-card" style={{ marginBottom: '16px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a', marginBottom: '10px' }}>낙폭 / 회복 맥락</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', fontSize: '12px', color: '#475569' }}>
+                <div>현재 낙폭<br /><strong style={{ color: '#0f172a', fontSize: '15px' }}>{(ddContext.current * 100).toFixed(1)}%</strong>{ddContext.underwaterMonths > 0 && <span style={{ color: '#94a3b8' }}> · {ddContext.underwaterMonths}개월째</span>}</div>
+                <div>역대 낙폭 중 깊이<br /><strong style={{ color: ddContext.currentRankPct >= 70 ? '#ef4444' : '#0f172a', fontSize: '15px' }}>상위 {100 - ddContext.currentRankPct}%</strong> <span style={{ color: '#94a3b8' }}>{ddContext.current >= -0.01 ? '(신고가 근처)' : ''}</span></div>
+                <div>−10% 이상 조정<br /><strong style={{ color: '#0f172a', fontSize: '15px' }}>{ddContext.episodes10}회</strong> <span style={{ color: '#94a3b8' }}>(−20%+: {ddContext.episodes20}회)</span></div>
+                <div>−10% 조정 회복기간<br /><strong style={{ color: '#0f172a', fontSize: '15px' }}>{ddContext.medianRecovery10 != null ? `중앙값 ${ddContext.medianRecovery10}개월` : '—'}</strong></div>
+                <div>역대 최악 낙폭<br /><strong style={{ color: '#ef4444', fontSize: '15px' }}>{(ddContext.worstDepth * 100).toFixed(0)}%</strong> <span style={{ color: '#94a3b8' }}>{ddContext.worstRecovery != null ? `(회복 ${ddContext.worstRecovery}개월)` : '(미회복)'}</span></div>
+              </div>
+            </div>
+          )}
+
+          {/* 레짐 전환 타임라인 (기능3) */}
+          {regimeTimelineData && (
+            <div className="market-phase-card" style={{ marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>레짐 전환 이력</span>
+                <span style={{ fontSize: '12px', color: '#64748b' }}>
+                  현재 <strong style={{ color: REGIME_INFO[regimeTimelineData.current].color }}>{REGIME_INFO[regimeTimelineData.current].label}</strong> {Math.round(regimeTimelineData.streakDays / 21)}개월째 (since {regimeTimelineData.since})
+                </span>
+              </div>
+              {/* 레짐 비율 막대 */}
+              <div style={{ display: 'flex', height: '10px', borderRadius: '5px', overflow: 'hidden', marginBottom: '6px' }}>
+                <div style={{ width: `${regimeTimelineData.share.green}%`, background: REGIME_INFO.green.color }} />
+                <div style={{ width: `${regimeTimelineData.share.yellow}%`, background: REGIME_INFO.yellow.color }} />
+                <div style={{ width: `${regimeTimelineData.share.red}%`, background: REGIME_INFO.red.color }} />
+              </div>
+              <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '12px' }}>
+                과거 비율: 우호적 {regimeTimelineData.share.green}% · 주의 {regimeTimelineData.share.yellow}% · 방어 {regimeTimelineData.share.red}%
+              </div>
+              {/* 최근 전환 */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {regimeTimelineData.transitions.slice(-6).reverse().map((t, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+                    <span style={{ color: '#64748b', minWidth: '78px' }}>{t.date}</span>
+                    <span style={{ color: REGIME_INFO[t.from].color }}>{REGIME_INFO[t.from].label}</span>
+                    <span style={{ color: '#cbd5e1' }}>→</span>
+                    <span style={{ color: REGIME_INFO[t.to].color, fontWeight: 600 }}>{REGIME_INFO[t.to].label}</span>
+                    <span style={{ color: '#94a3b8', fontSize: '11px' }}>
+                      {(t.from === 'green' || t.from === 'yellow') && t.to === 'red' ? '방어 신호' : (t.from === 'red' && (t.to === 'green' || t.to === 'yellow')) ? '재진입 신호' : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* DCA 시뮬레이터 */}
           {dcaResult && (
             <div className="market-probability-box" style={{ marginBottom: '16px' }}>
@@ -1411,6 +1464,16 @@ ${globalSummary}
               />
             </div>
           )}
+
+          {/* 검증 투명성 (기능5) */}
+          <details style={{ marginTop: '16px', fontSize: '12px', color: '#64748b' }}>
+            <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#475569' }}>방법론 / 검증 (펼치기)</summary>
+            <div style={{ marginTop: '8px', lineHeight: 1.7, background: '#f8fafc', borderRadius: '8px', padding: '12px 14px' }}>
+              <p style={{ margin: '0 0 8px' }}><strong>레짐 산출</strong>: 가격 vs 200일 이동평균 + 12개월 모멘텀 + 60일 실현변동성. 셋 다 양호=우호적(노출 100%), 둘=주의(70%), 하나 이하=방어(40%). 파라미터는 a-priori 고정(과적합 회피).</p>
+              <p style={{ margin: '0 0 8px' }}><strong>검증</strong>: 12개 글로벌 지수 전체 history(1970~)로 백테스트. 결론 — 어떤 신호도 1년 수익률을 신뢰성 있게 예측하지 못함(cross-index 분위 spread 부호 비일관, PSR 중앙값 0.68로 buy&hold 대비 유의한 위험조정 우위 없음). 단 추세기반 노출조절은 <strong>최대낙폭을 전 지수에서 약 절반으로</strong> 견고하게 감소(예: S&P −53%→−24%, NASDAQ −48%→−26%).</p>
+              <p style={{ margin: 0 }}><strong>근거 문헌</strong>: Bonini·Shohfi·Simaan (2024, European Financial Management) — buy-the-dip는 패시브를 신뢰성 있게 못 이김. Bailey·López de Prado — Deflated Sharpe(과적합 경고). 즉 이 지표는 '시장을 이기는' 도구가 아니라 '덜 다치고 꾸준히 적립하게 돕는' 리스크/행동 도구입니다.</p>
+            </div>
+          </details>
         </div>
       )}
 

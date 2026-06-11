@@ -173,6 +173,107 @@ export function simulateDca(allPoints: RegimePoint[], monthly: number): DcaResul
   return { start: points[0].date, end: points[points.length - 1].date, months, pure: mk(pure), regime: mk(reg), curve }
 }
 
+// ── 기능3: 레짐 전환 타임라인 ──────────────────────────────
+export interface RegimeTransition { date: string; from: Regime; to: Regime }
+export interface RegimeTimeline {
+  transitions: RegimeTransition[]   // 시간순 (최신이 뒤)
+  current: Regime
+  since: string                     // 현재 레짐 시작일
+  streakDays: number                // 현재 레짐 지속 거래일
+  share: Record<'green' | 'yellow' | 'red', number>  // 전체 대비 비율(%)
+}
+export function regimeTimeline(points: RegimePoint[]): RegimeTimeline | null {
+  const valid = points.filter(p => p.regime !== 'unknown')
+  if (valid.length === 0) return null
+  const transitions: RegimeTransition[] = []
+  let prev: Regime = valid[0].regime
+  let sinceDate = valid[0].date
+  const count = { green: 0, yellow: 0, red: 0 }
+  for (const p of valid) {
+    if (p.regime === 'green' || p.regime === 'yellow' || p.regime === 'red') count[p.regime]++
+    if (p.regime !== prev) {
+      transitions.push({ date: p.date, from: prev, to: p.regime })
+      sinceDate = p.date
+      prev = p.regime
+    }
+  }
+  const total = valid.length
+  const streakDays = valid.filter(p => p.date >= sinceDate).length
+  return {
+    transitions,
+    current: prev,
+    since: sinceDate,
+    streakDays,
+    share: {
+      green: Math.round(count.green / total * 100),
+      yellow: Math.round(count.yellow / total * 100),
+      red: Math.round(count.red / total * 100),
+    },
+  }
+}
+
+// ── 기능4: 낙폭 / 회복 맥락 ────────────────────────────────
+export interface DrawdownContext {
+  current: number              // 현재 ATH 대비 낙폭 (음수)
+  currentRankPct: number       // 역대 낙폭 분포에서 현재가 얼마나 깊은가 (0~100, 높을수록 깊음)
+  underwaterMonths: number     // 마지막 신고가 이후 경과 (거래월)
+  episodes10: number           // -10% 이상 하락 에피소드 수
+  episodes20: number           // -20% 이상
+  medianRecovery10: number | null  // -10%+ 에피소드 중앙값 회복기간(월)
+  worstDepth: number           // 역대 최악 낙폭
+  worstRecovery: number | null // 역대 최악 낙폭의 회복기간(월)
+}
+const TD_PER_MONTH = 21
+export function drawdownContext(points: RegimePoint[]): DrawdownContext | null {
+  const px = points.map(p => p.price)
+  const n = px.length
+  const ddAll: number[] = []
+  interface Ep { startIdx: number; depth: number; recoverIdx: number | null }
+  const eps: Ep[] = []
+  let peak = -Infinity, peakIdx = 0
+  let cur: Ep | null = null
+  for (let i = 0; i < n; i++) {
+    const v = px[i]
+    if (v == null || v <= 0) continue
+    if (v >= peak) {
+      if (cur) { cur.recoverIdx = i; eps.push(cur); cur = null }  // 신고가 → 에피소드 종료
+      peak = v; peakIdx = i
+    } else {
+      const dd = v / peak - 1
+      ddAll.push(dd)
+      if (!cur) cur = { startIdx: peakIdx, depth: dd, recoverIdx: null }
+      else cur.depth = Math.min(cur.depth, dd)
+    }
+  }
+  if (cur) eps.push(cur)  // 미회복(현재 진행중) 에피소드
+  if (ddAll.length === 0 && eps.length === 0) return null
+
+  const current = points.length ? (points[points.length - 1].drawdown ?? 0) : 0
+  // 현재 낙폭의 역대 percentile (깊을수록 높음)
+  const deeper = ddAll.filter(d => d <= current).length
+  const currentRankPct = ddAll.length ? Math.round(deeper / ddAll.length * 100) : 0
+  // 마지막 신고가 이후 경과
+  let underwater = 0
+  for (let i = n - 1; i >= 0; i--) { if (px[i] != null) { if ((points[i].drawdown ?? 0) < 0) underwater++; else break } }
+
+  const recoveredMonths = (e: Ep) => e.recoverIdx != null ? (e.recoverIdx - e.startIdx) / TD_PER_MONTH : null
+  const ep10 = eps.filter(e => e.depth <= -0.10)
+  const ep20 = eps.filter(e => e.depth <= -0.20)
+  const rec10 = ep10.map(recoveredMonths).filter((m): m is number => m != null).sort((a, b) => a - b)
+  const median10 = rec10.length ? rec10[Math.floor(rec10.length / 2)] : null
+  const worst = eps.reduce((w, e) => e.depth < w.depth ? e : w, eps[0])
+  return {
+    current,
+    currentRankPct,
+    underwaterMonths: Math.round(underwater / TD_PER_MONTH),
+    episodes10: ep10.length,
+    episodes20: ep20.length,
+    medianRecovery10: median10 != null ? Math.round(median10) : null,
+    worstDepth: worst.depth,
+    worstRecovery: recoveredMonths(worst) != null ? Math.round(recoveredMonths(worst) as number) : null,
+  }
+}
+
 export const REGIME_INFO: Record<Regime, { label: string; color: string; desc: string; action: string }> = {
   green:  { label: '우호적', color: '#059669', desc: '추세 건강(200일선 위)·모멘텀 양호·변동성 안정', action: '풀투자 유지, 적립 지속' },
   yellow: { label: '주의',   color: '#f59e0b', desc: '추세/모멘텀/변동성 중 일부 악화', action: '적립 유지, 신규 목돈은 분할' },
