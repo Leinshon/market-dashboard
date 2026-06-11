@@ -14,6 +14,7 @@ import {
 import { Line } from 'react-chartjs-2'
 import { supabase } from './lib/supabase'
 import { calculateTimingScoreSeries, calculateRiskSignal, TIMING_SCORE_DISTRIBUTION, type RiskSignal } from './lib/composite-score'
+import { computeRegimeSeries, simulateDca, REGIME_INFO } from './lib/risk-regime'
 import './Market.css'
 
 // Chart.js 등록
@@ -53,6 +54,8 @@ interface MarketHistoryRecord {
   gdp_growth_qoq: number | null
   ism_manufacturing: number | null
   ism_services: number | null
+  ism_mfg_employment: number | null
+  ism_svc_employment: number | null
   retail_sales_yoy: number | null
   // 물가 지표
   cpi_yoy: number | null
@@ -426,11 +429,27 @@ const calculateIndicatorScores = (
   return scores
 }
 
+// 매력도 지수 대상 (S&P500 / NASDAQ100 / KOSPI)
+// FINRA margin debt 는 미국 전용 데이터라 KOSPI 는 drawdown 단독으로 산출됨.
+// (calculateTimingScoreSeries 는 margin 이 null 이면 drawdown 100% 로 폴백)
+type TimingIndexKey = 'sp500' | 'nasdaq100' | 'kospi'
+const TIMING_INDEX_CONFIG: Record<TimingIndexKey, {
+  label: string
+  priceField: 'spy_price' | 'qqq_price' | 'kospi_price'
+  useMargin: boolean
+  pricePrefix: string
+}> = {
+  sp500:     { label: 'S&P500',    priceField: 'spy_price',   useMargin: true,  pricePrefix: '$' },
+  nasdaq100: { label: 'NASDAQ100', priceField: 'qqq_price',   useMargin: true,  pricePrefix: '$' }, // QQQ = NASDAQ100 근사
+  kospi:     { label: 'KOSPI',     priceField: 'kospi_price', useMargin: false, pricePrefix: '' },   // ^KS11 종합지수 근사
+}
+
 // History 전체에서 Timing Score 시계열 계산. 시간순(오름차순) 입력 가정.
-// v4: drawdown_ath p10y + margin/SPY lagged p10y 결합
-const calculateScoresFromHistory = (history: MarketHistoryRecord[]): number[] => {
+// v4: drawdown_ath p10y + margin/price lagged p10y 결합 (지수별 가격 + margin 가용성)
+const calculateScoresFromHistory = (history: MarketHistoryRecord[], indexKey: TimingIndexKey = 'sp500'): number[] => {
+  const cfg = TIMING_INDEX_CONFIG[indexKey]
   return calculateTimingScoreSeries(
-    history.map(h => ({ spy_price: h.spy_price, margin_debt: h.margin_debt }))
+    history.map(h => ({ spy_price: h[cfg.priceField] ?? null, margin_debt: cfg.useMargin ? h.margin_debt : null }))
   )
 }
 
@@ -478,42 +497,42 @@ const getStanceInfo = (stance: InvestmentStance) => {
     aggressive_plus: {
       label: '매수 적기',
       color: '#059669',
-      description: 'S&P500이 ATH 대비 큰 폭으로 빠진 상태. 지난 10년 분포에서 상위 10% 수준의 매력. 1996~2026 데이터에서 이 점수대 진입 후 10년 보유 시 단 한 번도 손실 없었고 평균 CAGR +12.4%/yr (vs 평소 +6.9%/yr). 1년 후 손실 비율 4.3%.',
+      description: '해당 지수가 ATH 대비 큰 폭으로 빠진 상태. 지난 10년 분포에서 상위 10% 수준의 매력. 아래 통계는 이 지수 자체 history 기준 실측치입니다.',
       allocation: { stocks: '90%', bonds: '10%', cash: '0%' },
       action: '목돈이 있다면 지금 투자를 적극 고려하세요',
     },
     aggressive: {
       label: '매수 우위',
       color: '#16a34a',
-      description: 'ATH 대비 의미있는 조정 구간. 지난 10년 분포에서 상위 15~25%. 10년 보유 시 평균 CAGR +11.5%/yr (vs 평소 +6.9%/yr). 1년 후 손실 비율 13.2%.',
+      description: 'ATH 대비 의미있는 조정 구간. 지난 10년 분포에서 상위 15~25% 매력.',
       allocation: { stocks: '80%', bonds: '15%', cash: '5%' },
       action: '목돈 투자를 고려해볼 만한 시점입니다',
     },
     moderate_aggressive: {
       label: '소폭 매수 우위',
       color: '#22c55e',
-      description: '약간의 조정 구간. 지난 10년 분포에서 상위 25~40%. 10년 CAGR +11.1%/yr. 1년 후 손실 비율 9.0%.',
+      description: '약간의 조정 구간. 지난 10년 분포에서 상위 25~40% 매력.',
       allocation: { stocks: '70%', bonds: '20%', cash: '10%' },
       action: '목돈은 2~3회 분할 매수를 권장합니다',
     },
     neutral: {
       label: '중립',
       color: '#f59e0b',
-      description: '평균적 매력도. 큰 조정도 아니고 ATH도 아닌 어정쩡한 구간. 10년 CAGR +8.6%/yr. 1년 후 손실 비율 21.6%로 가장 높은 변동성.',
+      description: '평균적 매력도. 큰 조정도 아니고 ATH도 아닌 중간 구간.',
       allocation: { stocks: '60%', bonds: '25%', cash: '15%' },
       action: '적립식 유지, 목돈은 더 좋은 기회를 기다리세요',
     },
     moderate_defensive: {
       label: '소폭 방어 우위',
       color: '#f97316',
-      description: 'ATH 근처지만 약간 빠진 상태. 의외로 1년 후 손실 비율 31.4% (가장 높음) — 단기 침체 진입 가능성. 10년 CAGR은 +9.6%/yr로 나쁘진 않으나 단기 변동성이 큼.',
+      description: 'ATH 근처지만 약간 빠진 상태. 지난 10년 분포에서 하위 20~40% 매력.',
       allocation: { stocks: '50%', bonds: '25%', cash: '25%' },
       action: '목돈 투자는 보류, 분할 매수 또는 대기',
     },
     defensive: {
       label: '방어 우위',
       color: '#ef4444',
-      description: 'ATH 근처(현재가 ≈ 최고가). 강세장 한가운데로, 단기 추가 상승 여력은 있으나 큰 조정 위험. 10년 CAGR +10.3%/yr (장기 보유는 OK). 새 자금 진입에는 매력적이지 않은 구간.',
+      description: 'ATH 근처(현재가 ≈ 최고가). 강세장 한가운데로 단기 추가 상승 여력은 있으나 신규 진입 매력은 낮은 구간.',
       allocation: { stocks: '40%', bonds: '20%', cash: '40%' },
       action: '신규 진입은 보류, 조정을 기다리세요',
     },
@@ -528,50 +547,57 @@ const getStanceInfo = (stance: InvestmentStance) => {
   return info[stance]
 }
 
-// 실측값: scripts/long_horizon_analysis.py 출력
-// 1996~2026 weekly data, drawdown_ath p10y score 기반
-// 1년 hit rate + 평균 / 10년 CAGR + 누적
-const getStanceProbability = (stance: InvestmentStance) => {
-  const probabilities: Record<InvestmentStance, {
-    year1: { up: number; avgUp: number; avgDown: number; avg: number };
-    year10: { up: number; cagr: number; totalReturn: number };
-  }> = {
-    // 90+ 점 (n_1y=93, n_10y=36)
-    aggressive_plus: {
-      year1:  { up: 96, avgUp: 23.5,  avgDown: -3.5,  avg: 22.9 },
-      year10: { up: 100, cagr: 12.4, totalReturn: 221.7 },
-    },
-    // 75-90 (n_1y≈80, n_10y≈30 추정)
-    aggressive: {
-      year1:  { up: 87, avgUp: 22.0,  avgDown: -7.0,  avg: 21.9 },
-      year10: { up: 100, cagr: 11.5, totalReturn: 198.4 },
-    },
-    // 60-75 (n_1y=133)
-    moderate_aggressive: {
-      year1:  { up: 91, avgUp: 16.5,  avgDown: -10.0, avg: 15.5 },
-      year10: { up: 100, cagr: 11.1, totalReturn: 187.6 },
-    },
-    // 40-60 (n_1y=241)
-    neutral: {
-      year1:  { up: 78, avgUp: 11.0,  avgDown: -13.5, avg: 5.7 },
-      year10: { up: 100, cagr: 8.6,  totalReturn: 137.5 },
-    },
-    // 20-40 (n_1y=354) — 의외로 가장 안 좋은 단기 hit rate
-    moderate_defensive: {
-      year1:  { up: 69, avgUp: 11.2,  avgDown: -12.0, avg: 3.9 },
-      year10: { up: 100, cagr: 9.6,  totalReturn: 158.7 },
-    },
-    // 0-20 (n_1y=278) — ATH 근처, 강세장 한가운데
-    defensive: {
-      year1:  { up: 80, avgUp: 12.0,  avgDown: -4.5,  avg: 8.7 },
-      year10: { up: 100, cagr: 10.3, totalReturn: 168.4 },
-    },
-    unknown: {
-      year1:  { up: 0, avgUp: 0, avgDown: 0, avg: 0 },
-      year10: { up: 0, cagr: 0, totalReturn: 0 },
-    },
+// 선택 지수의 '자기' history 에서 현재 stance 구간의 실현 forward-return 통계를 라이브 계산.
+// (과거엔 S&P500 1996~2026 값을 하드코딩 → NASDAQ/KOSPI 에 그대로 노출되는 오보정이었음.
+//  지수별 백테스트로 교정. 데이터는 일별이므로 252거래일=1년.)
+// 검증: scripts/validate_nasdaq_timing.py — SPY 1y 분위 spread +14.3%, QQQ +14.2% (1y 신호 전이),
+//       단 10년 horizon 은 NASDAQ 에서 표본 부족·부호 역전 → '3년' 으로 노출.
+const TRADING_DAYS_1Y = 252
+interface StanceStats {
+  year1: { up: number; avgUp: number; avgDown: number; avg: number; n: number }
+  year3: { up: number; cagr: number; avg: number; n: number }
+  baseline1y: number
+  baseline3yCagr: number
+}
+const computeStanceStats = (
+  prices: (number | null)[],
+  scores: number[],
+  stance: InvestmentStance,
+): StanceStats => {
+  const fwd = (lag: number): number[] => prices.map((p, i) => {
+    const f = prices[i + lag]
+    return (p != null && p > 0 && f != null && Number.isFinite(f)) ? f / p - 1 : NaN
+  })
+  const r1 = fwd(TRADING_DAYS_1Y)
+  const r3 = fwd(TRADING_DAYS_1Y * 3)
+  const bucket1: number[] = [], all1: number[] = []
+  const bucket3: number[] = [], all3: number[] = []
+  for (let i = 0; i < scores.length; i++) {
+    if (!Number.isFinite(scores[i])) continue
+    const inB = determineInvestmentStance(Math.round(scores[i])) === stance
+    if (Number.isFinite(r1[i])) { all1.push(r1[i]); if (inB) bucket1.push(r1[i]) }
+    if (Number.isFinite(r3[i])) { all3.push(r3[i]); if (inB) bucket3.push(r3[i]) }
   }
-  return probabilities[stance]
+  const mean = (a: number[]) => a.length ? a.reduce((s, v) => s + v, 0) / a.length : NaN
+  const cagr3 = (a: number[]) => mean(a.map(v => Math.pow(1 + v, 1 / 3) - 1))
+  const ups = bucket1.filter(v => v > 0), downs = bucket1.filter(v => v <= 0)
+  return {
+    year1: {
+      up: bucket1.length ? Math.round(ups.length / bucket1.length * 100) : 0,
+      avgUp: mean(ups) * 100,
+      avgDown: mean(downs) * 100,
+      avg: mean(bucket1) * 100,
+      n: bucket1.length,
+    },
+    year3: {
+      up: bucket3.length ? Math.round(bucket3.filter(v => v > 0).length / bucket3.length * 100) : 0,
+      cagr: cagr3(bucket3) * 100,
+      avg: mean(bucket3) * 100,
+      n: bucket3.length,
+    },
+    baseline1y: mean(all1) * 100,
+    baseline3yCagr: cagr3(all3) * 100,
+  }
 }
 
 const indicatorToHistoryField: Record<string, keyof MarketHistoryRecord> = {
@@ -690,9 +716,11 @@ export default function Market() {
   const [marketChatInput, setMarketChatInput] = useState('')
   const [marketChatLoading, setMarketChatLoading] = useState(false)
   const [expandedIndicator, setExpandedIndicator] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'overview' | 'global' | 'macro' | 'kr-macro' | 'timing'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'global' | 'macro' | 'kr-macro' | 'timing' | 'risk-regime'>('overview')
+  const [dcaMonthly, setDcaMonthly] = useState(500000)
   const [expandedMacroCard, setExpandedMacroCard] = useState<string | null>(null)
   const [chartPeriod, setChartPeriod] = useState<'1y' | '3y' | '5y' | '10y' | 'all'>('3y')
+  const [timingIndex, setTimingIndex] = useState<TimingIndexKey>('sp500')
 
   // 날짜 기반 필터링을 위한 cutoff 날짜 계산
   const chartCutoffDate = useMemo(() => {
@@ -727,23 +755,24 @@ export default function Market() {
 
       const fetchData = async () => {
         try {
-          // 2번에 나눠서 가져오기 (Supabase 기본 limit 1000)
-          const { data: batch1, error: error1 } = await supabase
-            .from('market_indicators_history')
-            .select('*')
-            .order('date', { ascending: true })
-            .range(0, 999)
+          // 전체 히스토리를 페이지네이션으로 가져오기 (Supabase 기본 limit 1000)
+          const historyData: MarketHistoryRecord[] = []
+          const PAGE_SIZE = 1000
+          let pageOffset = 0
+          while (true) {
+            const { data: page, error: pageError } = await supabase
+              .from('market_indicators_history')
+              .select('*')
+              .order('date', { ascending: true })
+              .range(pageOffset, pageOffset + PAGE_SIZE - 1)
 
-          const { data: batch2, error: error2 } = await supabase
-            .from('market_indicators_history')
-            .select('*')
-            .order('date', { ascending: true })
-            .range(1000, 1999)
+            if (pageError) throw pageError
+            if (!page || page.length === 0) break
 
-          if (error1) throw error1
-          if (error2) throw error2
-
-          const historyData = [...(batch1 || []), ...(batch2 || [])]
+            historyData.push(...page)
+            if (page.length < PAGE_SIZE) break
+            pageOffset += PAGE_SIZE
+          }
 
           if (historyData.length > 0) {
             setMarketHistory(historyData)
@@ -932,8 +961,35 @@ export default function Market() {
   // history 전체에 대해 한 번 계산. 각 인덱스의 score는 해당 시점까지의 history만으로 산출됨.
   const timingScoreSeries = useMemo(() => {
     if (marketHistory.length === 0) return []
-    return calculateScoresFromHistory(marketHistory)
-  }, [marketHistory])
+    return calculateScoresFromHistory(marketHistory, timingIndex)
+  }, [marketHistory, timingIndex])
+
+  // 리스크 레짐 시계열 (추세+모멘텀+변동성) — 선택 지수 기준
+  const regimeSeries = useMemo(() => {
+    if (marketHistory.length === 0) return []
+    const cfg = TIMING_INDEX_CONFIG[timingIndex]
+    return computeRegimeSeries(
+      marketHistory.map(h => h.date),
+      marketHistory.map(h => h[cfg.priceField] ?? null),
+    )
+  }, [marketHistory, timingIndex])
+
+  // DCA 시뮬레이션 (순수 DCA vs DCA+레짐 디리스킹)
+  const dcaResult = useMemo(() => {
+    if (regimeSeries.length === 0) return null
+    return simulateDca(regimeSeries, dcaMonthly)
+  }, [regimeSeries, dcaMonthly])
+
+  // 현재(최신 또는 선택 시점) 레짐
+  const currentRegime = useMemo(() => {
+    if (regimeSeries.length === 0) return null
+    const idx = selectedDateIndex ?? regimeSeries.length - 1
+    // price가 있는 가장 가까운 과거 시점
+    for (let i = Math.min(idx, regimeSeries.length - 1); i >= 0; i--) {
+      if (regimeSeries[i].price != null && regimeSeries[i].regime !== 'unknown') return regimeSeries[i]
+    }
+    return regimeSeries[Math.min(idx, regimeSeries.length - 1)]
+  }, [regimeSeries, selectedDateIndex])
 
   // 현재(또는 선택된) 시점의 score
   const selectedScore = useMemo(() => {
@@ -1052,6 +1108,12 @@ ${globalSummary}
           onClick={() => setActiveTab('timing')}
         >
           투자 타이밍 지표
+        </button>
+        <button
+          className={`calc-tab ${activeTab === 'risk-regime' ? 'active' : ''}`}
+          onClick={() => setActiveTab('risk-regime')}
+        >
+          리스크 레짐 + DCA
         </button>
       </div>
 
@@ -1230,7 +1292,129 @@ ${globalSummary}
         </div>
       )}
 
-      <div className="calc-section" style={{ display: activeTab === 'global' ? 'none' : 'block' }}>
+      {/* 리스크 레짐 + DCA 탭 */}
+      {activeTab === 'risk-regime' && (
+        <div className="calc-section">
+          {/* 지수 선택 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 600 }}>대상 지수</span>
+            <div className="market-period-selector">
+              {(['sp500', 'nasdaq100', 'kospi'] as const).map((key) => (
+                <button
+                  key={key}
+                  className={`market-period-btn ${timingIndex === key ? 'active' : ''}`}
+                  onClick={() => setTimingIndex(key)}
+                >
+                  {TIMING_INDEX_CONFIG[key].label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 정직성 안내 */}
+          <div style={{ fontSize: '12px', color: '#64748b', background: '#f8fafc', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', lineHeight: 1.6 }}>
+            이 지표는 <strong>수익률을 예측하지 않습니다.</strong> 12개 지수 전체 history 검증 결과, 어떤 신호도 1년 수익을 신뢰성 있게 예측하지 못했습니다(시장을 이기지 못함). 다만 <strong>하락추세에서 노출을 줄이면 역사적 최대낙폭이 절반 수준으로 감소</strong>했습니다. 이 탭의 용도는 수익 극대화가 아니라 <strong>낙폭 관리 + 꾸준한 적립(DCA) 코칭</strong>입니다.
+          </div>
+
+          {/* 현재 레짐 카드 */}
+          {currentRegime && currentRegime.regime !== 'unknown' && (() => {
+            const info = REGIME_INFO[currentRegime.regime]
+            return (
+              <div className="market-phase-card" style={{ borderColor: info.color, marginBottom: '16px' }}>
+                <div className="market-phase-header">
+                  <div className="market-phase-badge" style={{ backgroundColor: info.color }}>{info.label}</div>
+                  <div className="market-phase-score">
+                    <span className="market-score-label">권장 주식 노출</span>
+                    <span className="market-score-value">{Math.round(currentRegime.exposure * 100)}%</span>
+                  </div>
+                </div>
+                <div style={{ fontSize: '13px', color: '#475569', marginTop: '8px', lineHeight: 1.6 }}>
+                  {info.desc}. <strong style={{ color: info.color }}>{info.action}</strong>
+                </div>
+                <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginTop: '12px', fontSize: '12px', color: '#64748b' }}>
+                  <span>ATH 대비 낙폭: <strong style={{ color: '#0f172a' }}>{currentRegime.drawdown != null ? (currentRegime.drawdown * 100).toFixed(1) + '%' : '—'}</strong></span>
+                  <span>200일선 {currentRegime.price != null && currentRegime.ma200 != null ? (currentRegime.price >= currentRegime.ma200 ? '위(상승추세)' : '아래(하락추세)') : '—'}</span>
+                  <span>12개월 모멘텀: <strong style={{ color: '#0f172a' }}>{currentRegime.mom12 != null ? (currentRegime.mom12 >= 0 ? '+' : '') + (currentRegime.mom12 * 100).toFixed(1) + '%' : '—'}</strong></span>
+                  <span>변동성: <strong style={{ color: currentRegime.volElevated ? '#ef4444' : '#0f172a' }}>{currentRegime.vol != null ? (currentRegime.vol * 100).toFixed(0) + '%' : '—'}{currentRegime.volElevated ? ' (확대)' : ''}</strong></span>
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* DCA 시뮬레이터 */}
+          {dcaResult && (
+            <div className="market-probability-box" style={{ marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                <span className="market-probability-title" style={{ margin: 0 }}>
+                  적립식(DCA) 시뮬레이션 · {dcaResult.start.slice(0, 7)}~{dcaResult.end.slice(0, 7)} ({dcaResult.months}개월)
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '12px', color: '#64748b' }}>매월</span>
+                  <select
+                    value={dcaMonthly}
+                    onChange={(e) => setDcaMonthly(Number(e.target.value))}
+                    style={{ fontSize: '13px', padding: '4px 8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                  >
+                    {[100000, 300000, 500000, 1000000].map(v => (
+                      <option key={v} value={v}>{(v / 10000).toLocaleString()}만원</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="market-probability-grid">
+                {([
+                  { key: 'pure', label: '순수 DCA (항상 100% 투자)', r: dcaResult.pure, color: '#64748b' },
+                  { key: 'regime', label: 'DCA + 레짐 디리스킹', r: dcaResult.regime, color: '#059669' },
+                ] as const).map(({ key, label, r, color }) => (
+                  <div key={key} className="market-probability-period">
+                    <span className="market-probability-label" style={{ color }}>{label}</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px', fontSize: '13px' }}>
+                      <div>총 적립금: <strong>{Math.round(r.contributed / 10000).toLocaleString()}만원</strong></div>
+                      <div>최종 가치: <strong style={{ color, fontSize: '15px' }}>{Math.round(r.finalValue / 10000).toLocaleString()}만원</strong> <span style={{ color: '#94a3b8', fontSize: '11px' }}>({r.multiple.toFixed(2)}배)</span></div>
+                      <div>연 수익률(CAGR): <strong>{r.cagr >= 0 ? '+' : ''}{(r.cagr * 100).toFixed(1)}%/yr</strong></div>
+                      <div>최대 낙폭: <strong style={{ color: r.maxDrawdown < -0.4 ? '#ef4444' : '#0f172a' }}>{(r.maxDrawdown * 100).toFixed(0)}%</strong></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '10px', lineHeight: 1.5 }}>
+                레짐 디리스킹은 하락 국면에 주식 노출을 줄여(현금 보유) <strong>최대낙폭을 크게 낮춥니다</strong>. 최종 수익은 비슷하거나 약간 낮을 수 있으나(평균 노출이 낮으므로), 마음고생과 패닉 매도 위험이 줄어듭니다. 위험조정수익(Sharpe) 우위는 통계적으로 유의하지 않습니다 — '이기는' 전략이 아니라 '덜 다치는' 전략입니다.
+              </div>
+            </div>
+          )}
+
+          {/* 자산곡선 차트 */}
+          {dcaResult && dcaResult.curve.length > 2 && (
+            <div className="market-indicator-chart" style={{ height: '280px' }}>
+              <Line
+                data={{
+                  labels: dcaResult.curve.map(c => c.date.slice(0, 7)),
+                  datasets: [
+                    { label: '순수 DCA', data: dcaResult.curve.map(c => c.pure), borderColor: '#64748b', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, tension: 0.1 },
+                    { label: 'DCA + 레짐', data: dcaResult.curve.map(c => c.regime), borderColor: '#059669', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, tension: 0.1 },
+                    { label: '총 적립금', data: dcaResult.curve.map(c => c.contributed), borderColor: '#cbd5e1', backgroundColor: 'transparent', borderWidth: 1, borderDash: [4, 4], pointRadius: 0 },
+                  ],
+                }}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  interaction: { mode: 'index', intersect: false },
+                  plugins: {
+                    legend: { display: true, position: 'top', labels: { font: { size: 11 }, boxWidth: 12 } },
+                    tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${Math.round(Number(ctx.parsed.y) / 10000).toLocaleString()}만원` } },
+                  },
+                  scales: {
+                    x: { ticks: { maxTicksLimit: 12, font: { size: 10 } }, grid: { display: false } },
+                    y: { ticks: { font: { size: 10 }, callback: (v) => Math.round(Number(v) / 10000).toLocaleString() + '만' }, grid: { color: '#f1f5f9' } },
+                  },
+                }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="calc-section" style={{ display: (activeTab === 'global' || activeTab === 'risk-regime') ? 'none' : 'block' }}>
         {/* 날짜 선택 슬라이더 - 종합/매크로/한국매크로/타이밍 탭에서 표시 (글로벌만 제외) */}
         {activeTab !== 'global' && marketHistory.length > 0 && (
           <div className="market-date-slider">
@@ -1280,13 +1464,15 @@ ${globalSummary}
 
         {selectedMarketData && (() => {
           const scores = calculateIndicatorScores(selectedMarketData, marketHistory)
+          // 지표 차트는 '조회 날짜' 슬라이더로 선택한 시점까지만 표시 (표시값과 그래프 끝점 일치)
+          const visibleHistory = marketHistory.slice(0, (selectedDateIndex ?? marketHistory.length - 1) + 1)
           const scoreValid = Number.isFinite(selectedScore)
           const avgScore = scoreValid ? Math.round(selectedScore) : NaN
           const stance = determineInvestmentStance(avgScore)
           const stanceInfo = getStanceInfo(stance)
           const missingTimingInputs: string[] = []
           if (selectedMarketData.lastUpdated && !scoreValid) {
-            missingTimingInputs.push('SPY 10년 이력')
+            missingTimingInputs.push(`${TIMING_INDEX_CONFIG[timingIndex].label} 10년 이력`)
           }
 
           // 새 Timing Score는 단일 SPY 시계열만 사용. "핵심 지표" 라벨은 더 이상 적용 안 됨.
@@ -1324,6 +1510,28 @@ ${globalSummary}
               {/* 종합 탭 */}
               {activeTab === 'overview' && (
                 <>
+                  {/* 매력도 기준 지수 선택 (S&P500 / NASDAQ100 / KOSPI) */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 600 }}>매력도 기준 지수</span>
+                    <div className="market-period-selector">
+                      {(['sp500', 'nasdaq100', 'kospi'] as const).map((key) => (
+                        <button
+                          key={key}
+                          className={`market-period-btn ${timingIndex === key ? 'active' : ''}`}
+                          onClick={() => setTimingIndex(key)}
+                        >
+                          {TIMING_INDEX_CONFIG[key].label}
+                        </button>
+                      ))}
+                    </div>
+                    {timingIndex !== 'sp500' && (
+                      <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                        {timingIndex === 'kospi'
+                          ? '한국 마진 데이터 미제공 → drawdown 단독. 통계는 KOSPI 자체 백테스트, 자산배분은 일반 위험관리 기준'
+                          : 'QQQ로 NASDAQ100 근사. 통계는 NASDAQ 자체 백테스트 기준 (닷컴 이전 미포함)'}
+                      </span>
+                    )}
+                  </div>
                   {/* 투자 매력도 기반 자산배분 가이드 */}
                   <div className="market-phase-card" style={{ borderColor: stanceInfo.color }}>
                 <div className="market-phase-header">
@@ -1592,12 +1800,21 @@ ${globalSummary}
                     </div>
                   </div>
 
-                  {/* 1년 hit rate + 10년 CAGR */}
+                  {/* 1년/3년 forward return — 선택 지수 자체 history 라이브 백테스트 */}
                   {(() => {
-                    const prob = getStanceProbability(stance)
+                    const cfg = TIMING_INDEX_CONFIG[timingIndex]
+                    const prices = marketHistory.map(h => h[cfg.priceField] ?? null)
+                    const prob = computeStanceStats(prices, timingScoreSeries, stance)
+                    const firstScoredIdx = timingScoreSeries.findIndex(s => Number.isFinite(s))
+                    const fromYear = firstScoredIdx >= 0 ? marketHistory[firstScoredIdx]?.date?.slice(0, 4) : '—'
+                    const toYear = marketHistory[marketHistory.length - 1]?.date?.slice(0, 4)
+                    const thin = prob.year1.n < 20
+                    const dn = Number.isFinite(prob.year1.avgDown) ? prob.year1.avgDown : 0
                     return (
                       <div className="market-probability-box">
-                        <span className="market-probability-title">지금 투자하면? (1996~2026 30년 백테스트 기준)</span>
+                        <span className="market-probability-title">
+                          지금 투자하면? ({cfg.label} {fromYear}~{toYear} 백테스트 · 표본 {prob.year1.n}회{thin ? ', 표본 적음·참고만' : ''})
+                        </span>
                         <div className="market-probability-grid">
                           <div className="market-probability-period">
                             <span className="market-probability-label">1년 후 (단기)</span>
@@ -1611,7 +1828,7 @@ ${globalSummary}
                                   />
                                 </div>
                                 <span className="market-probability-value">{prob.year1.up}%</span>
-                                <span className="market-probability-avg">(+{prob.year1.avgUp.toFixed(1)}%)</span>
+                                <span className="market-probability-avg">(+{(Number.isFinite(prob.year1.avgUp) ? prob.year1.avgUp : 0).toFixed(1)}%)</span>
                               </div>
                               <div className="market-probability-bar-row">
                                 <span className="market-probability-direction down">하락 시</span>
@@ -1622,32 +1839,32 @@ ${globalSummary}
                                   />
                                 </div>
                                 <span className="market-probability-value">{100 - prob.year1.up}%</span>
-                                <span className="market-probability-avg">({prob.year1.avgDown.toFixed(1)}%)</span>
+                                <span className="market-probability-avg">({dn.toFixed(1)}%)</span>
                               </div>
                               <div style={{ marginTop: '8px', fontSize: '12px', color: '#475569' }}>
                                 평균 수익률: <strong>{prob.year1.avg >= 0 ? '+' : ''}{prob.year1.avg.toFixed(1)}%</strong>
+                                <span style={{ color: '#94a3b8', fontSize: '11px', marginLeft: '6px' }}>(전구간 평균 {prob.baseline1y >= 0 ? '+' : ''}{prob.baseline1y.toFixed(1)}%)</span>
                               </div>
                             </div>
                           </div>
                           <div className="market-probability-period">
-                            <span className="market-probability-label">10년 후 (장기)</span>
+                            <span className="market-probability-label">3년 후 (장기){prob.year3.n < 20 ? ' · 표본 적음' : ''}</span>
                             <div className="market-probability-bars">
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                 <div style={{ fontSize: '13px' }}>
-                                  CAGR: <strong style={{ color: prob.year10.cagr >= 9 ? '#059669' : '#475569', fontSize: '16px' }}>
-                                    +{prob.year10.cagr.toFixed(1)}%/yr
+                                  CAGR: <strong style={{ color: prob.year3.cagr >= prob.baseline3yCagr ? '#059669' : '#475569', fontSize: '16px' }}>
+                                    {prob.year3.cagr >= 0 ? '+' : ''}{(Number.isFinite(prob.year3.cagr) ? prob.year3.cagr : 0).toFixed(1)}%/yr
                                   </strong>
-                                  <span style={{ color: '#94a3b8', fontSize: '11px', marginLeft: '6px' }}>(시장 평균 +6.9%/yr)</span>
+                                  <span style={{ color: '#94a3b8', fontSize: '11px', marginLeft: '6px' }}>(전구간 평균 {prob.baseline3yCagr >= 0 ? '+' : ''}{(Number.isFinite(prob.baseline3yCagr) ? prob.baseline3yCagr : 0).toFixed(1)}%/yr)</span>
                                 </div>
                                 <div style={{ fontSize: '13px' }}>
-                                  10년 누적: <strong>+{prob.year10.totalReturn.toFixed(0)}%</strong>
-                                  <span style={{ color: '#94a3b8', fontSize: '11px', marginLeft: '6px' }}>(1천만원 → {(10000 * (1 + prob.year10.totalReturn / 100)).toFixed(0)}만원)</span>
+                                  3년 누적 평균: <strong>{prob.year3.avg >= 0 ? '+' : ''}{(Number.isFinite(prob.year3.avg) ? prob.year3.avg : 0).toFixed(0)}%</strong>
                                 </div>
                                 <div style={{ fontSize: '13px' }}>
-                                  손실 확률: <strong style={{ color: prob.year10.up === 100 ? '#059669' : '#475569' }}>
-                                    {100 - prob.year10.up}%
+                                  상승 확률: <strong style={{ color: prob.year3.up >= 80 ? '#059669' : '#475569' }}>
+                                    {prob.year3.up}%
                                   </strong>
-                                  <span style={{ color: '#94a3b8', fontSize: '11px', marginLeft: '6px' }}>(시장 평균 10%)</span>
+                                  <span style={{ color: '#94a3b8', fontSize: '11px', marginLeft: '6px' }}>(표본 {prob.year3.n}회)</span>
                                 </div>
                               </div>
                             </div>
@@ -1659,29 +1876,28 @@ ${globalSummary}
                 </div>
               </div>
 
-              {/* 점수 구성요소 카드 (drawdown + margin/SPY) */}
+              {/* 점수 구성요소 카드 (drawdown + margin/price) */}
               {(() => {
+                const cfg = TIMING_INDEX_CONFIG[timingIndex]
                 const histIdx = selectedDateIndex ?? marketHistory.length - 1
                 if (histIdx < 0 || histIdx >= marketHistory.length) return null
                 const histToHere = marketHistory.slice(0, histIdx + 1)
                 if (histToHere.length === 0) return null
-                const prices = histToHere.map(h => h.spy_price).filter((p): p is number => p !== null)
+                const prices = histToHere.map(h => h[cfg.priceField]).filter((p): p is number => p !== null)
                 if (prices.length === 0) return null
-                const currentSpy = prices[prices.length - 1]
+                const currentPrice = prices[prices.length - 1]
                 const ath = Math.max(...prices)
-                const dd = ath > 0 ? (currentSpy / ath - 1) * 100 : 0
+                const dd = ath > 0 ? (currentPrice / ath - 1) * 100 : 0
 
                 // 52w high
                 const last52 = prices.slice(-52)
                 const high52 = Math.max(...last52)
-                const dd52 = high52 > 0 ? (currentSpy / high52 - 1) * 100 : 0
+                const dd52 = high52 > 0 ? (currentPrice / high52 - 1) * 100 : 0
 
-                // Margin/SPY ratio + percentile
+                // Margin/price ratio (미국 지수만 — FINRA margin 가용)
                 const currentRec = marketHistory[histIdx]
                 const margin = currentRec.margin_debt
-                const marginPerSpy = margin && currentSpy > 0 ? margin / currentSpy : null
-                const ddP10y = scoreValid ? Math.round(avgScore * 0.8 * 100) / 100 : null
-                void ddP10y
+                const marginPerPrice = cfg.useMargin && margin && currentPrice > 0 ? margin / currentPrice : null
 
                 return (
                   <div className="market-phase-card" style={{ borderColor: '#cbd5e1', marginTop: '16px' }}>
@@ -1690,9 +1906,9 @@ ${globalSummary}
                         점수 구성요소
                       </div>
                       <div className="market-phase-score">
-                        <span className="market-score-label">S&P500</span>
+                        <span className="market-score-label">{cfg.label}</span>
                         <span className="market-score-value" style={{ fontSize: '18px' }}>
-                          ${currentSpy.toFixed(0)}
+                          {cfg.pricePrefix}{currentPrice.toFixed(cfg.pricePrefix ? 0 : 2)}
                         </span>
                       </div>
                     </div>
@@ -1702,20 +1918,20 @@ ${globalSummary}
                         <div style={{ fontSize: '16px', fontWeight: 600, color: dd <= -10 ? '#16a34a' : dd <= -5 ? '#f59e0b' : '#475569' }}>
                           {dd.toFixed(1)}%
                         </div>
-                        <div style={{ fontSize: '11px', color: '#94a3b8' }}>(80% 가중치)</div>
+                        <div style={{ fontSize: '11px', color: '#94a3b8' }}>{cfg.useMargin ? '(80% 가중치)' : '(100% 가중치 · drawdown 단독)'}</div>
                       </div>
                       <div>
                         <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>52주 고점 대비</div>
                         <div style={{ fontSize: '16px', fontWeight: 600 }}>{dd52.toFixed(1)}%</div>
                         <div style={{ fontSize: '11px', color: '#94a3b8' }}>(참고)</div>
                       </div>
-                      {marginPerSpy !== null && (
+                      {marginPerPrice !== null && (
                         <div style={{ gridColumn: '1 / -1' }}>
                           <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>
-                            FINRA Margin Debt / SPY price (레버리지 사이클)
+                            FINRA Margin Debt / {cfg.label} price (레버리지 사이클)
                           </div>
                           <div style={{ fontSize: '16px', fontWeight: 600 }}>
-                            {marginPerSpy.toFixed(0)}
+                            {marginPerPrice.toFixed(0)}
                             <span style={{ fontSize: '11px', color: '#94a3b8', marginLeft: '6px' }}>
                               ($M / share) — 1.5개월 lag 적용, 20% 가중치
                             </span>
@@ -1773,6 +1989,7 @@ ${globalSummary}
 
               {/* 투자 매력도 vs S&P500 차트 */}
               {marketHistory.length > 0 && (() => {
+                const cfg = TIMING_INDEX_CONFIG[timingIndex]
                 const periodMonths = { '1y': 12, '3y': 36, '5y': 60, '10y': 120, 'all': 999 }
                 const targetMonths = periodMonths[chartPeriod]
                 const startDate = new Date()
@@ -1797,7 +2014,7 @@ ${globalSummary}
                 const scoreYMin = Math.floor((minScore - scorePadding) / 5) * 5
                 const scoreYMax = Math.ceil((maxScore + scorePadding) / 5) * 5
 
-                const spyPrices = filteredHistory.map((d) => d.spy_price)
+                const spyPrices = filteredHistory.map((d) => d[cfg.priceField])
                 const validSpyPrices = spyPrices.filter((p): p is number => p !== null)
                 const hasSpyData = validSpyPrices.length > 0
 
@@ -1821,7 +2038,7 @@ ${globalSummary}
                 return (
                   <div className="market-history-chart">
                     <div className="market-chart-header">
-                      <h3 className="market-chart-title">투자 매력도 vs S&P500 추이</h3>
+                      <h3 className="market-chart-title">투자 매력도 vs {cfg.label} 추이</h3>
                       <div className="market-period-selector">
                         {(['1y', '3y', '5y', '10y', 'all'] as const).map((period) => (
                           <button
@@ -1858,7 +2075,7 @@ ${globalSummary}
                     </div>
                     <p className="market-chart-range">
                       매력도: {Math.round(minScore)} ~ {Math.round(maxScore)}점
-                      {hasSpyData && ` | S&P500: $${Math.round(spyMin)} ~ $${Math.round(spyMax)}`}
+                      {hasSpyData && ` | ${cfg.label}: ${cfg.pricePrefix}${Math.round(spyMin)} ~ ${cfg.pricePrefix}${Math.round(spyMax)}`}
                     </p>
                     <div className="market-chart-container">
                       {(() => {
@@ -1899,7 +2116,7 @@ ${globalSummary}
                                   yAxisID: 'y',
                                 },
                                 ...(hasSpyData ? [{
-                                  label: 'S&P500',
+                                  label: cfg.label,
                                   data: spyPrices,
                                   borderColor: '#94a3b8',
                                   backgroundColor: 'transparent',
@@ -1934,7 +2151,7 @@ ${globalSummary}
                                       if (label === '투자 매력도') {
                                         return `${label}: ${value.toFixed(1)}점`
                                       }
-                                      return `${label}: $${value.toFixed(2)}`
+                                      return `${label}: ${cfg.pricePrefix}${value.toFixed(2)}`
                                     },
                                   },
                                 },
@@ -1970,7 +2187,7 @@ ${globalSummary}
                                     max: spyYMax,
                                     title: {
                                       display: true,
-                                      text: 'S&P500',
+                                      text: cfg.label,
                                       font: { size: 10 },
                                     },
                                     ticks: { font: { size: 10 } },
@@ -2006,7 +2223,7 @@ ${globalSummary}
                         const historyField = indicatorToHistoryField[item.name]
                         const weight = indicatorWeightsDisplay[item.name] || 0
 
-                        const indicatorHistory = historyField ? marketHistory
+                        const indicatorHistory = historyField ? visibleHistory
                           .filter(h => h[historyField] !== null)
                           .map(h => ({
                             date: h.date,
@@ -2137,7 +2354,7 @@ ${globalSummary}
                       const historyField = indicatorToHistoryField[item.name]
                       const displayColor = isExpanded ? activeColor : grayColor
 
-                      const indicatorHistory = historyField ? marketHistory
+                      const indicatorHistory = historyField ? visibleHistory
                         .filter(h => h[historyField] !== null)
                         .map(h => ({
                           date: h.date,
@@ -2282,7 +2499,7 @@ ${globalSummary}
                     {getIndicatorsByTiming('leading').map((item) => {
                       const scoreColor = item.score >= 60 ? '#22c55e' : item.score >= 40 ? '#f59e0b' : '#ef4444'
                       const historyField = indicatorToHistoryField[item.name]
-                      const indicatorHistory = historyField ? marketHistory
+                      const indicatorHistory = historyField ? visibleHistory
                         .filter(h => h[historyField] !== null && new Date(h.date) >= chartCutoffDate)
                         .map(h => ({
                           date: h.date,
@@ -2346,7 +2563,7 @@ ${globalSummary}
                     {getIndicatorsByTiming('coincident').map((item) => {
                       const scoreColor = item.score >= 60 ? '#22c55e' : item.score >= 40 ? '#f59e0b' : '#ef4444'
                       const historyField = indicatorToHistoryField[item.name]
-                      const indicatorHistory = historyField ? marketHistory
+                      const indicatorHistory = historyField ? visibleHistory
                         .filter(h => h[historyField] !== null && new Date(h.date) >= chartCutoffDate)
                         .map(h => ({
                           date: h.date,
@@ -2410,7 +2627,7 @@ ${globalSummary}
                     {getIndicatorsByTiming('lagging').map((item) => {
                       const scoreColor = item.score >= 60 ? '#22c55e' : item.score >= 40 ? '#f59e0b' : '#ef4444'
                       const historyField = indicatorToHistoryField[item.name]
-                      const indicatorHistory = historyField ? marketHistory
+                      const indicatorHistory = historyField ? visibleHistory
                         .filter(h => h[historyField] !== null && new Date(h.date) >= chartCutoffDate)
                         .map(h => ({
                           date: h.date,
@@ -2542,10 +2759,10 @@ ${globalSummary}
                       )
                     })()}
 
-                    {/* ISM 제조업 */}
+                    {/* ISM 제조업 고용 확산지수 */}
                     {(() => {
                       const latestData = marketHistory[marketHistory.length - 1]
-                      const ismHistory = marketHistory.filter(h => h.ism_manufacturing !== null && new Date(h.date) >= chartCutoffDate)
+                      const ismHistory = marketHistory.filter(h => h.ism_mfg_employment !== null && new Date(h.date) >= chartCutoffDate)
                       const isExpanded = expandedMacroCard === 'ism'
                       const color = '#6366f1'
                       return (
@@ -2558,16 +2775,16 @@ ${globalSummary}
                             <span className="global-index-region">제조업 고용</span>
                           </div>
                           <div className="global-index-price" style={{ color }}>
-                            {latestData?.ism_manufacturing != null ? `${(latestData.ism_manufacturing / 1000).toFixed(1)}M` : 'N/A'}
+                            {latestData?.ism_mfg_employment != null ? latestData.ism_mfg_employment.toFixed(1) : 'N/A'}
                           </div>
-                          <p className="global-index-desc">제조업 부문 고용자 수 (백만명)</p>
+                          <p className="global-index-desc">제조업 고용 확산지수 (50=중립)</p>
                           {ismHistory.length > 0 && (
                             <div className={isExpanded ? 'global-detail-chart' : 'global-mini-chart'}>
                               <Line
                                 data={{
                                   labels: ismHistory.map(h => h.date),
                                   datasets: [{
-                                    data: ismHistory.map(h => h.ism_manufacturing),
+                                    data: ismHistory.map(h => h.ism_mfg_employment),
                                     borderColor: color,
                                     borderWidth: isExpanded ? 2 : 1.5,
                                     backgroundColor: `${color}15`,

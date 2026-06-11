@@ -481,13 +481,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .limit(1)
       .single()
 
-    // Get last ~10년 spy_price for Timing Score percentile 계산
+    // Get last ~10년 spy_price for Timing Score percentile 계산 (최근 600행)
     const { data: priorSpyRecords } = await supabase
       .from('market_indicators_history')
       .select('date, spy_price')
-      .order('date', { ascending: true })
+      .order('date', { ascending: false })
       .limit(600)
-    const priorSpyPrices: (number | null)[] = (priorSpyRecords ?? []).map(r => r.spy_price)
+    const priorSpyPrices: (number | null)[] = (priorSpyRecords ?? []).slice().reverse().map(r => r.spy_price)
 
     // Parallel fetch all data
     const [
@@ -1002,13 +1002,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Calculate timing score (v4: drawdown_ath p10y + margin/SPY lagged p10y)
-    // 직전 ~10년 SPY + margin_debt history 가 필요
+    // 직전 ~10년 SPY + margin_debt history 가 필요. 데이터는 '일별'이므로
+    // 10년 = ~2520 거래일. window(2520) 를 채우려면 최근 3000행 fetch (버퍼 포함).
     const { data: priorFullRecords } = await supabase
       .from('market_indicators_history')
       .select('date, spy_price, margin_debt')
-      .order('date', { ascending: true })
-      .limit(600)
-    const histInput = (priorFullRecords ?? []).map(r => ({
+      .order('date', { ascending: false })
+      .limit(3000)
+    const histInput = (priorFullRecords ?? []).slice().reverse().map(r => ({
       spy_price: r.spy_price,
       margin_debt: r.margin_debt,
     }))

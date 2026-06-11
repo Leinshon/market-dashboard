@@ -15,8 +15,11 @@
 // === Risk Signal ===
 // VIX + HY Spread + HYG drawdown 의 분위 4단계 (normal/elevated/high/extreme)
 
-const ROLLING_WINDOW = 520 // 10년 (주간)
-const MARGIN_LAG_WEEKS = 6 // FINRA release lag (1.5개월)
+// 주의: market_indicators_history 는 '일별' 데이터다. window/lag 는 거래일 기준.
+// (과거 주간 가정으로 520/6 이 쓰였으나 일별 입력 시 실제 ~2년/6일로 축소되는 버그였음.
+//  검증 스크립트의 주간-520(=10년)과 corr 0.994 로 재현되는 일별-2520/30 으로 교정.)
+const ROLLING_WINDOW = 2520 // 10년 (거래일, ~252/yr)
+const MARGIN_LAG_DAYS = 30 // FINRA release lag ~1.5개월 (6주 × 5거래일)
 
 // 가중치
 const W_DRAWDOWN = 0.8
@@ -99,7 +102,7 @@ export function calculateTimingScoreSeries(history: TimingHistoryInput[]): numbe
 
   // margin/SPY (lagged 6w) p10y inverted (낮을수록 매력)
   const mps = computeMarginPerSpy(spyPrices, marginDebt)
-  const mpsLagged = applyLag(mps, MARGIN_LAG_WEEKS)
+  const mpsLagged = applyLag(mps, MARGIN_LAG_DAYS)
   const mpsInv = mpsLagged.map(v => Number.isFinite(v) ? -v : NaN)
   const mps_p10y = rollingPercentile(mpsInv, ROLLING_WINDOW)
 
@@ -145,7 +148,7 @@ export function calculateTimingBreakdown(history: TimingHistoryInput[]): TimingS
   const drawdowns = computeDrawdownSeries(spyPrices)
   const dd_p10y = rollingPercentile(drawdowns.map(d => Number.isFinite(d) ? -d : NaN), ROLLING_WINDOW)
   const mps = computeMarginPerSpy(spyPrices, marginDebt)
-  const mpsLagged = applyLag(mps, MARGIN_LAG_WEEKS)
+  const mpsLagged = applyLag(mps, MARGIN_LAG_DAYS)
   const mps_p10y = rollingPercentile(mpsLagged.map(v => Number.isFinite(v) ? -v : NaN), ROLLING_WINDOW)
   const i = history.length - 1
   const ddV = dd_p10y[i] ?? NaN
